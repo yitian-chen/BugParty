@@ -47,6 +47,17 @@ namespace PartyGame
         [Tooltip("Prefab used when a player places a Mine. Must have a Mine component.")]
         public GameObject minePrefabRef;
 
+        [Header("Item Registry (for network kind -> SO lookup)")]
+        [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]
+        public ItemDataSO[] allItems;
+
+        public ItemDataSO GetItemByKind(ItemKind kind)
+        {
+            if (allItems == null) return null;
+            foreach (var it in allItems) if (it != null && it.kind == kind) return it;
+            return null;
+        }
+
         [Header("Scoring")]
         public int commonFishScore = 1;
         public int goldenFishScore = 2;

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace PartyGame
@@ -8,6 +9,10 @@ namespace PartyGame
     /// Waves 1-5 spawn `commonSpotsPerWave` common spots at random locations
     /// (within map bounds, respecting minimum distance from islands).
     /// Wave 6 spawns a single golden spot at the map center.
+    ///
+    /// Server-authoritative: in networked mode only the server executes SpawnWave
+    /// and calls NetworkObject.Spawn so instances replicate to clients.
+    /// In solo mode (no networking) it falls back to plain Instantiate.
     /// </summary>
     public class FishingSpotSpawner : MonoBehaviour
     {
@@ -25,8 +30,13 @@ namespace PartyGame
 
         private PartyGameConfig Config => gameManager != null ? gameManager.Config : null;
 
+        private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
+        private bool CanAuthor => IsSoloMode || NetworkManager.Singleton.IsServer;
+
         public void OnMatchStarted()
         {
+            if (!CanAuthor) return;
+
             // If we pre-spawned wave 0 during countdown, unpause it and continue from wave 1.
             if (nextWaveIndex == 0 && activeSpots.Count > 0)
             {
@@ -47,6 +57,7 @@ namespace PartyGame
         /// </summary>
         public void PreSpawnFirstWave()
         {
+            if (!CanAuthor) return;
             if (Config == null) return;
             if (activeSpots.Count > 0) return;
             SpawnWave(0);
@@ -56,6 +67,7 @@ namespace PartyGame
 
         private void Update()
         {
+            if (!CanAuthor) return;
             if (gameManager == null || !gameManager.IsGamePlaying()) return;
             if (Config == null) return;
 
@@ -90,6 +102,8 @@ namespace PartyGame
         {
             if (commonSpotPrefab == null) return;
             FishingSpot spot = Instantiate(commonSpotPrefab, pos, Quaternion.identity, spotsParent);
+            var netObj = spot.GetComponent<NetworkObject>();
+            if (!IsSoloMode && netObj != null) netObj.Spawn(true);
             spot.Initialize(FishType.Common, Config.fishPerCommonSpot, Config.waveInterval, Config.commonSpotRadius);
             activeSpots.Add(spot);
         }
@@ -98,6 +112,8 @@ namespace PartyGame
         {
             if (goldenSpotPrefab == null) return;
             FishingSpot spot = Instantiate(goldenSpotPrefab, pos, Quaternion.identity, spotsParent);
+            var netObj = spot.GetComponent<NetworkObject>();
+            if (!IsSoloMode && netObj != null) netObj.Spawn(true);
             spot.Initialize(FishType.Golden, -1, Config.waveInterval, Config.goldenSpotRadius);
             activeSpots.Add(spot);
         }
@@ -146,7 +162,14 @@ namespace PartyGame
         {
             for (int i = 0; i < activeSpots.Count; i++)
             {
-                if (activeSpots[i] != null) Destroy(activeSpots[i].gameObject);
+                var s = activeSpots[i];
+                if (s == null) continue;
+                if (!IsSoloMode)
+                {
+                    var netObj = s.GetComponent<NetworkObject>();
+                    if (netObj != null && netObj.IsSpawned) { netObj.Despawn(true); continue; }
+                }
+                Destroy(s.gameObject);
             }
             activeSpots.Clear();
         }

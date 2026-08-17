@@ -43,17 +43,10 @@ namespace PartyGame
 
         private void Update()
         {
-            FishingAction current = owner != null ? owner.ActiveFishing : null;
-            if (current != subscribedAction)
-            {
-                if (subscribedAction != null) subscribedAction.OnProgressChanged -= HandleProgressChanged;
-                subscribedAction = current;
-                progressCache = 0f;
-                if (subscribedAction != null) subscribedAction.OnProgressChanged += HandleProgressChanged;
-            }
-
-            // Direct set (no `!= visible` check) so if something external re-enables barRoot we still reconcile.
-            SetVisible(current != null);
+            bool serverHasAction = owner != null && owner.ActiveFishing != null;
+            // Networked clients don't hold a FishingAction — they read via NetworkVariables.
+            bool visibleNow = serverHasAction || (owner != null && owner.IsFishingRemote);
+            SetVisible(visibleNow);
         }
 
         private void LateUpdate()
@@ -63,17 +56,17 @@ namespace PartyGame
                 transform.position = followTarget.position + offset;
             }
 
-            FishingAction current = owner != null ? owner.ActiveFishing : null;
-            if (visible && current != null)
+            if (visible && owner != null)
             {
-                progress = current.ProgressNormalized;
+                progress = owner.ActiveFishing != null
+                    ? owner.ActiveFishing.ProgressNormalized
+                    : owner.FishingProgressRemote;
                 ApplyFill();
             }
 
             Camera cam = Camera.main;
             if (cam != null)
             {
-                // Fully face the camera (billboard).
                 transform.rotation = cam.transform.rotation;
             }
         }

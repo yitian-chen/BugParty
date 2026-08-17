@@ -1,17 +1,17 @@
+using Unity.Netcode;
 using UnityEngine;
 
 namespace PartyGame
 {
     /// <summary>
-    /// A placed mine. Waits armDelay seconds after spawn (so its owner can walk away),
-    /// then stuns the first player who enters its trigger. The stunned player has the
-    /// option to pick up this mine (see PartyPlayer.Stun for auto-pickup logic).
+    /// A placed mine. Server ticks armDelay and detects OnTriggerEnter; on hit it stuns
+    /// the victim via a NetworkBehaviour path (Stun mutates a NetworkVariable) and despawns.
     /// </summary>
     [RequireComponent(typeof(SphereCollider))]
-    public class Mine : MonoBehaviour
+    public class Mine : NetworkBehaviour
     {
         [SerializeField] private float armDelay = 1.0f;
-        [SerializeField] private float stunDurationOverride = -1f; // <0 uses config
+        [SerializeField] private float stunDurationOverride = -1f;
         [SerializeField] private ItemDataSO mineItemData;
         [SerializeField] private Renderer visualRenderer;
 
@@ -22,6 +22,9 @@ namespace PartyGame
 
         public ItemDataSO ItemData => mineItemData;
 
+        private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
+        private bool CanAuthor => IsSoloMode || IsServer;
+
         private void Awake()
         {
             trigger = GetComponent<SphereCollider>();
@@ -29,25 +32,22 @@ namespace PartyGame
             if (visualRenderer == null) visualRenderer = GetComponentInChildren<Renderer>();
         }
 
-        public void Configure(PartyPlayer placingOwner)
-        {
-            owner = placingOwner;
-        }
+        public void Configure(PartyPlayer placingOwner) => owner = placingOwner;
 
         private void Update()
         {
             aliveTime += Time.deltaTime;
-            // Fade in a bit more once armed (still low alpha — "隐形" per design).
             if (visualRenderer != null && aliveTime >= armDelay)
             {
+                // Visual only; safe on both server + client.
                 var c = visualRenderer.material.color;
-                c.a = 0.35f;
-                visualRenderer.material.color = c;
+                if (c.a < 0.5f) { c.a = 0.5f; visualRenderer.material.color = c; }
             }
         }
 
         private void OnTriggerEnter(Collider other)
         {
+            if (!CanAuthor) return; // Only the authoritative side reacts to triggers.
             if (triggered) return;
             if (aliveTime < armDelay) return;
 
@@ -57,11 +57,15 @@ namespace PartyGame
                 float stun = stunDurationOverride > 0f
                     ? stunDurationOverride
                     : (PartyGameManager.Instance != null && PartyGameManager.Instance.Config != null
-                        ? PartyGameManager.Instance.Config.mineStunDuration
-                        : 5f);
+                        ? PartyGameManager.Instance.Config.mineStunDuration : 5f);
                 victim.Stun(stun);
-                // Offer the mine to the victim's inventory so they can re-throw once un-stunned.
                 if (mineItemData != null) victim.TryEquipItem(mineItemData);
+
+                if (!IsSoloMode)
+                {
+                    var netObj = GetComponent<NetworkObject>();
+                    if (netObj != null && netObj.IsSpawned) { netObj.Despawn(true); return; }
+                }
                 Destroy(gameObject);
             }
         }

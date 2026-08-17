@@ -1,88 +1,86 @@
 using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace PartyGame
 {
     /// <summary>
     /// A player-owned island with a "fish deposit platform".
-    /// Own-owner players drop their whole raft catch here in one action.
-    /// Other players standing here can steal one fish per interact.
+    /// Server-authoritative counts synced to clients via NetworkVariables.
     /// </summary>
-    public class Island : MonoBehaviour
+    public class Island : NetworkBehaviour
     {
         [SerializeField] private int ownerPlayerIndex;
         [SerializeField] private Transform depositAnchor;
 
-        private int commonFishCount;
-        private int goldenFishCount;
+        private NetworkVariable<int> netCommon = new NetworkVariable<int>(0);
+        private NetworkVariable<int> netGolden = new NetworkVariable<int>(0);
+
         private readonly HashSet<PartyPlayer> playersOnPlatform = new HashSet<PartyPlayer>();
 
         public event EventHandler OnFishCountChanged;
 
         public int OwnerPlayerIndex => ownerPlayerIndex;
-        public int CommonFishCount => commonFishCount;
-        public int GoldenFishCount => goldenFishCount;
+        public int CommonFishCount => netCommon.Value;
+        public int GoldenFishCount => netGolden.Value;
+
+        private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
+        private bool CanAuthor => IsSoloMode || IsServer;
+
+        public override void OnNetworkSpawn()
+        {
+            netCommon.OnValueChanged += (a, b) => OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+            netGolden.OnValueChanged += (a, b) => OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+        }
 
         public int GetScore(PartyGameConfig config)
         {
-            if (config == null) return commonFishCount + goldenFishCount * 2;
-            return commonFishCount * config.commonFishScore + goldenFishCount * config.goldenFishScore;
+            int c = netCommon.Value, g = netGolden.Value;
+            if (config == null) return c + g * 2;
+            return c * config.commonFishScore + g * config.goldenFishScore;
         }
 
         public bool ContainsPlayer(PartyPlayer player) => playersOnPlatform.Contains(player);
 
         public void DepositAll(PartyPlayer player)
         {
-            if (player == null) return;
+            if (!CanAuthor || player == null) return;
             (int common, int golden) = player.DrainCarriedFish();
-            commonFishCount += common;
-            goldenFishCount += golden;
-            if (common > 0 || golden > 0)
-            {
+            if (common > 0) netCommon.Value += common;
+            if (golden > 0) netGolden.Value += golden;
+            if ((common > 0 || golden > 0) && IsSoloMode)
                 OnFishCountChanged?.Invoke(this, EventArgs.Empty);
-            }
         }
 
-        /// <summary>Deposit a single fish. Returns the type deposited (Common preferred), or null if raft empty.</summary>
         public FishType? DepositOne(PartyPlayer player)
         {
-            if (player == null) return null;
+            if (!CanAuthor || player == null) return null;
             if (player.CarriedFishTotal <= 0) return null;
             FishType t = player.RemoveOneFishForDeposit();
-            if (t == FishType.Common) commonFishCount++; else goldenFishCount++;
-            OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+            if (t == FishType.Common) netCommon.Value++; else netGolden.Value++;
+            if (IsSoloMode) OnFishCountChanged?.Invoke(this, EventArgs.Empty);
             return t;
         }
 
-        /// <summary>Steal a single fish. Returns the type stolen (Common preferred), or null if empty.</summary>
         public FishType? StealOne(PartyPlayer thief)
         {
-            if (thief == null) return null;
+            if (!CanAuthor || thief == null) return null;
             if (thief.CarriedFishTotal >= thief.RaftFishCapacity) return null;
-
             FishType? stolen = null;
-            if (commonFishCount > 0)
-            {
-                commonFishCount--;
-                stolen = FishType.Common;
-            }
-            else if (goldenFishCount > 0)
-            {
-                goldenFishCount--;
-                stolen = FishType.Golden;
-            }
-
+            if (netCommon.Value > 0) { netCommon.Value--; stolen = FishType.Common; }
+            else if (netGolden.Value > 0) { netGolden.Value--; stolen = FishType.Golden; }
             if (stolen != null)
             {
                 thief.AddFish(stolen.Value, 1);
-                OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+                if (IsSoloMode) OnFishCountChanged?.Invoke(this, EventArgs.Empty);
             }
             return stolen;
         }
 
         private void OnTriggerEnter(Collider other)
         {
+            if (!CanAuthor) return; // server tracks presence; clients don't
             if (other.TryGetComponent(out PartyPlayer player))
             {
                 playersOnPlatform.Add(player);
@@ -92,13 +90,11 @@ namespace PartyGame
 
         private void OnTriggerExit(Collider other)
         {
+            if (!CanAuthor) return;
             if (other.TryGetComponent(out PartyPlayer player))
             {
                 playersOnPlatform.Remove(player);
-                if (player.CurrentIsland == this)
-                {
-                    player.SetCurrentIsland(null);
-                }
+                if (player.CurrentIsland == this) player.SetCurrentIsland(null);
             }
         }
     }

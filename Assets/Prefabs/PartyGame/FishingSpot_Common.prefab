@@ -94,6 +94,7 @@ GameObject:
   - component: {fileID: 4794787030513787209}
   - component: {fileID: 7188106657565535242}
   - component: {fileID: 3298688433638851007}
+  - component: {fileID: 471537934538267362}
   m_Layer: 0
   m_Name: FishingSpot_Common
   m_TagString: Untagged
@@ -153,3 +154,27 @@ MonoBehaviour:
   fishType: 0
   visualCommon: {fileID: 6833176367733720671}
   visualGolden: {fileID: 0}
+  blinkWarningSeconds: 8
+  blinkPeriodSlow: 0.5
+  blinkPeriodFast: 0.1
+--- !u!114 &471537934538267362
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8398394823492907496}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  GlobalObjectIdHash: 0
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 1
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1

@@ -1,17 +1,19 @@
 using System;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace PartyGame
 {
     /// <summary>
-    /// Local (non-networked) master controller for a Party Fishing match.
-    /// Owns the state machine, timers, wave scheduling, and settlement.
+    /// Server-authoritative master controller for a Party Fishing match.
+    /// State + timers live in NetworkVariables so clients can read them for HUD/logic.
+    /// Only the server ticks the state machine and drives spawns.
     ///
-    /// Not a NetworkBehaviour on purpose — phase A runs single-machine.
-    /// Phase C will fold this authority into the host via NetworkVariables + RPCs.
+    /// Falls back to solo (non-networked) behavior when NetworkManager isn't listening,
+    /// keeping single-machine dev / Play-in-Editor working without a menu.
     /// </summary>
-    public class PartyGameManager : MonoBehaviour
+    public class PartyGameManager : NetworkBehaviour
     {
         public static PartyGameManager Instance { get; private set; }
 
@@ -36,33 +38,31 @@ namespace PartyGame
         [Tooltip("If true, immediately skip WaitingToStart on scene load (useful during phase A prototyping).")]
         [SerializeField] private bool autoStart = true;
 
-        private State state = State.WaitingToStart;
-        private float countdownTimer;
-        private float matchTimer;
-        private bool frenzyTriggered;
+        // Networked authoritative fields — server writes, everyone reads.
+        private NetworkVariable<int> netState = new NetworkVariable<int>((int)State.WaitingToStart);
+        private NetworkVariable<float> netCountdownTimer = new NetworkVariable<float>(0f);
+        private NetworkVariable<float> netMatchTimer = new NetworkVariable<float>(0f);
+        private NetworkVariable<bool> netFrenzy = new NetworkVariable<bool>(false);
 
         public event EventHandler OnStateChanged;
         public event EventHandler OnFrenzyStarted;
 
         public PartyGameConfig Config => config;
-        public State CurrentState => state;
-        public float CountdownTimer => countdownTimer;
-        public float MatchTimeRemaining => Mathf.Max(0f, matchTimer);
-        public float MatchTimeElapsed => (config != null ? config.matchDuration : 0f) - matchTimer;
-        public bool IsFrenzy => frenzyTriggered;
+        public State CurrentState => (State)netState.Value;
+        public float CountdownTimer => netCountdownTimer.Value;
+        public float MatchTimeRemaining => Mathf.Max(0f, netMatchTimer.Value);
+        public float MatchTimeElapsed => (config != null ? config.matchDuration : 0f) - netMatchTimer.Value;
+        public bool IsFrenzy => netFrenzy.Value;
         public IReadOnlyList<Island> Islands => islands;
+
+        /// <summary>Are we in solo/local dev mode (no networking active)?</summary>
+        private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
+        /// <summary>Should this instance mutate authoritative state?</summary>
+        private bool CanAuthor => IsSoloMode || IsServer;
 
         private void Awake()
         {
             Instance = this;
-        }
-
-        private void Start()
-        {
-            if (autoStart)
-            {
-                BeginCountdown();
-            }
         }
 
         private void OnDestroy()
@@ -70,32 +70,64 @@ namespace PartyGame
             if (Instance == this) Instance = null;
         }
 
+        public override void OnNetworkSpawn()
+        {
+            netState.OnValueChanged += HandleStateNet;
+            netFrenzy.OnValueChanged += HandleFrenzyNet;
+        }
+
+        public override void OnNetworkDespawn()
+        {
+            netState.OnValueChanged -= HandleStateNet;
+            netFrenzy.OnValueChanged -= HandleFrenzyNet;
+        }
+
+        private void HandleStateNet(int prev, int cur) => OnStateChanged?.Invoke(this, EventArgs.Empty);
+        private void HandleFrenzyNet(bool prev, bool cur) { if (cur && !prev) OnFrenzyStarted?.Invoke(this, EventArgs.Empty); }
+
+        private void Start()
+        {
+            // In solo mode Start runs immediately. In networked mode we wait for the server
+            // to finish spawning players first (see StartCoroutine below in a future step),
+            // but auto-start is still fine to kick off countdown so the match runs.
+            if (autoStart)
+            {
+                // Give the spawner a moment on the server to spawn players (which happens
+                // synchronously in OnServerStarted). Solo mode has no spawner delay.
+                if (CanAuthor) BeginCountdown();
+            }
+        }
+
         public void BeginCountdown()
         {
-            if (state != State.WaitingToStart) return;
+            if (!CanAuthor) return;
+            if ((State)netState.Value != State.WaitingToStart) return;
             if (config == null)
             {
                 Debug.LogError("[PartyGameManager] Config is not assigned.");
                 return;
             }
-            countdownTimer = config.countdownToStart;
+            netCountdownTimer.Value = config.countdownToStart;
             ChangeState(State.CountdownToStart);
             spawner?.PreSpawnFirstWave();
         }
 
         private void Update()
         {
-            switch (state)
+            if (!CanAuthor) return; // Clients are pure observers.
+
+            State s = (State)netState.Value;
+            switch (s)
             {
                 case State.WaitingToStart:
                     break;
 
                 case State.CountdownToStart:
-                    countdownTimer -= Time.deltaTime;
-                    if (countdownTimer <= 0f)
+                    netCountdownTimer.Value -= Time.deltaTime;
+                    if (netCountdownTimer.Value <= 0f)
                     {
-                        matchTimer = config.matchDuration;
-                        frenzyTriggered = false;
+                        netMatchTimer.Value = config.matchDuration;
+                        netFrenzy.Value = false;
                         EquipDefaultLoadout();
                         ChangeState(State.GamePlaying);
                         spawner?.OnMatchStarted();
@@ -103,9 +135,9 @@ namespace PartyGame
                     break;
 
                 case State.GamePlaying:
-                    matchTimer -= Time.deltaTime;
+                    netMatchTimer.Value -= Time.deltaTime;
                     CheckFrenzyStart();
-                    if (matchTimer <= 0f)
+                    if (netMatchTimer.Value <= 0f)
                     {
                         ChangeState(State.GameOver);
                     }
@@ -118,33 +150,33 @@ namespace PartyGame
 
         private void CheckFrenzyStart()
         {
-            if (frenzyTriggered || config == null) return;
+            if (netFrenzy.Value || config == null) return;
             if (MatchTimeElapsed >= config.frenzyStartTime)
             {
-                frenzyTriggered = true;
-                OnFrenzyStarted?.Invoke(this, EventArgs.Empty);
+                netFrenzy.Value = true;
+                // OnFrenzyStarted event fires via netFrenzy.OnValueChanged for all clients.
             }
         }
 
         private void ChangeState(State newState)
         {
-            state = newState;
-            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            netState.Value = (int)newState;
+            // OnStateChanged event fires via netState.OnValueChanged (also on server thanks to NGO callback semantics).
         }
 
-        public bool IsGamePlaying() => state == State.GamePlaying;
-        public bool IsGameOver() => state == State.GameOver;
-        public bool IsCountdownToStartActive() => state == State.CountdownToStart;
-        public bool IsWaitingToStart() => state == State.WaitingToStart;
+        public bool IsGamePlaying() => (State)netState.Value == State.GamePlaying;
+        public bool IsGameOver() => (State)netState.Value == State.GameOver;
+        public bool IsCountdownToStartActive() => (State)netState.Value == State.CountdownToStart;
+        public bool IsWaitingToStart() => (State)netState.Value == State.WaitingToStart;
 
         public float GetFrenzyMoveMultiplier()
         {
-            return frenzyTriggered && config != null ? config.frenzyMoveMultiplier : 1f;
+            return netFrenzy.Value && config != null ? config.frenzyMoveMultiplier : 1f;
         }
 
         public float GetFrenzyFishingSpeedMultiplier()
         {
-            return frenzyTriggered && config != null ? config.frenzyFishingSpeedMultiplier : 1f;
+            return netFrenzy.Value && config != null ? config.frenzyFishingSpeedMultiplier : 1f;
         }
 
         public Island GetIslandOfPlayer(int playerIndex)
@@ -165,7 +197,6 @@ namespace PartyGame
                 if (defaultDisruptionItem != null) p.TryEquipItem(defaultDisruptionItem);
                 if (seedItemForDemo != null)
                 {
-                    // Demo helper: if all slots are full, replace the last one so testers can try the seed item.
                     if (!p.TryEquipItem(seedItemForDemo)) p.ForceReplaceLastSlot(seedItemForDemo);
                 }
             }

@@ -18,7 +18,8 @@ namespace PartyGame
 
         private void LateUpdate()
         {
-            bool show = owner != null && owner.ActiveFishing != null && !owner.ActiveFishing.IsFinished;
+            if (owner == null) { SetVisible(false); return; }
+            bool show = (owner.ActiveFishing != null && !owner.ActiveFishing.IsFinished) || owner.IsFishingRemote;
             SetVisible(show);
         }
 

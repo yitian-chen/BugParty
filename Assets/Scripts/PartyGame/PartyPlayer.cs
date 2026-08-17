@@ -208,30 +208,47 @@ namespace PartyGame
 
         private void HandleMovement()
         {
-            if (movementInput.sqrMagnitude > 0.01f)
+            // Car-like control: W/S -> forward/back along facing, A/D -> rotate in place.
+            float forward = movementInput.z;       // W/S
+            float turn = movementInput.x;          // A/D
+            bool hasInput = Mathf.Abs(forward) > 0.01f || Mathf.Abs(turn) > 0.01f;
+
+            if (hasInput && activeFishing != null)
             {
-                if (activeFishing != null)
-                {
-                    activeFishing.Cancel();
-                }
-
-                lastMoveDir = movementInput;
-                float speed = (config != null ? config.playerMoveSpeed : 6f)
-                              * (PartyGameManager.Instance != null ? PartyGameManager.Instance.GetFrenzyMoveMultiplier() : 1f);
-                float moveDistance = speed * Time.deltaTime;
-                Vector3 desired = movementInput.normalized;
-
-                // Collide against solid geometry (islands). Try full move; then slide on X-only / Z-only.
-                Vector3 delta = TryMove(desired, moveDistance);
-
-                // Kinematic RB drives transform directly; this keeps the raft snappy regardless of FixedUpdate rate.
-                transform.position += delta;
+                activeFishing.Cancel();
             }
 
-            if (visualRoot != null && movementInput.sqrMagnitude > 0.01f)
+            float frenzyMul = PartyGameManager.Instance != null ? PartyGameManager.Instance.GetFrenzyMoveMultiplier() : 1f;
+
+            // Rotation (in place).
+            if (Mathf.Abs(turn) > 0.01f)
             {
-                Quaternion targetRot = Quaternion.LookRotation(movementInput);
-                visualRoot.rotation = Quaternion.Slerp(visualRoot.rotation, targetRot, Time.deltaTime * 10f);
+                float turnSpeed = 140f * frenzyMul; // deg/sec
+                float deltaYaw = turn * turnSpeed * Time.deltaTime;
+                if (visualRoot != null)
+                {
+                    visualRoot.Rotate(0f, deltaYaw, 0f, Space.World);
+                }
+                else
+                {
+                    transform.Rotate(0f, deltaYaw, 0f, Space.World);
+                }
+            }
+
+            // Forward/back translation along the visual's forward vector.
+            if (Mathf.Abs(forward) > 0.01f)
+            {
+                Vector3 fwd = (visualRoot != null ? visualRoot.forward : transform.forward);
+                fwd.y = 0f;
+                fwd.Normalize();
+                lastMoveDir = fwd;
+
+                float speed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul;
+                float moveDistance = forward * speed * Time.deltaTime;
+                Vector3 desired = fwd * Mathf.Sign(forward);
+                Vector3 delta = TryMove(desired, Mathf.Abs(moveDistance)) * Mathf.Sign(forward);
+
+                transform.position += delta;
             }
         }
 

@@ -12,6 +12,8 @@ namespace PartyGame.UI
         {
             public Image icon;
             public TextMeshProUGUI durabilityLabel;
+            public TextMeshProUGUI nameLabel;
+            public TextMeshProUGUI hotkeyLabel;
             public GameObject emptyIndicator;
         }
 
@@ -51,9 +53,17 @@ namespace PartyGame.UI
                     v.icon.enabled = hasItem && inst.data != null && inst.data.icon != null;
                     if (v.icon.enabled) v.icon.sprite = inst.data.icon;
                 }
+                if (v.nameLabel != null)
+                {
+                    v.nameLabel.text = hasItem ? inst.data.displayName : "";
+                }
                 if (v.durabilityLabel != null)
                 {
-                    v.durabilityLabel.text = hasItem ? inst.durability.ToString() : "";
+                    v.durabilityLabel.text = hasItem ? "x" + inst.durability : "";
+                }
+                if (v.hotkeyLabel != null)
+                {
+                    v.hotkeyLabel.text = (i + 1).ToString();
                 }
                 if (v.emptyIndicator != null) v.emptyIndicator.SetActive(!hasItem);
             }

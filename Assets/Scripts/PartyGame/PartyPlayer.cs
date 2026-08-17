@@ -218,15 +218,14 @@ namespace PartyGame
                 lastMoveDir = movementInput;
                 float speed = (config != null ? config.playerMoveSpeed : 6f)
                               * (PartyGameManager.Instance != null ? PartyGameManager.Instance.GetFrenzyMoveMultiplier() : 1f);
-                Vector3 delta = movementInput * speed * Time.deltaTime;
-                if (rb != null)
-                {
-                    rb.MovePosition(rb.position + delta);
-                }
-                else
-                {
-                    transform.position += delta;
-                }
+                float moveDistance = speed * Time.deltaTime;
+                Vector3 desired = movementInput.normalized;
+
+                // Collide against solid geometry (islands). Try full move; then slide on X-only / Z-only.
+                Vector3 delta = TryMove(desired, moveDistance);
+
+                // Kinematic RB drives transform directly; this keeps the raft snappy regardless of FixedUpdate rate.
+                transform.position += delta;
             }
 
             if (visualRoot != null && movementInput.sqrMagnitude > 0.01f)
@@ -234,6 +233,36 @@ namespace PartyGame
                 Quaternion targetRot = Quaternion.LookRotation(movementInput);
                 visualRoot.rotation = Quaternion.Slerp(visualRoot.rotation, targetRot, Time.deltaTime * 10f);
             }
+        }
+
+        private Vector3 TryMove(Vector3 dir, float distance)
+        {
+            // Broad-phase capsule cast from the player's current position.
+            const float castRadius = 0.6f;
+            float castHeight = 1.5f;
+            Vector3 p1 = transform.position + Vector3.up * castRadius;
+            Vector3 p2 = transform.position + Vector3.up * (castHeight - castRadius);
+
+            System.Func<Vector3, bool> Blocked = (d) => {
+                var hits = Physics.CapsuleCastAll(p1, p2, castRadius, d, distance, ~0, QueryTriggerInteraction.Ignore);
+                foreach (var h in hits)
+                {
+                    if (h.collider == null) continue;
+                    if (h.collider.transform.IsChildOf(transform) || h.collider.transform == transform) continue;
+                    return true;
+                }
+                return false;
+            };
+
+            if (!Blocked(dir)) return dir * distance;
+
+            Vector3 dx = new Vector3(dir.x, 0, 0).normalized;
+            if (dx.sqrMagnitude > 0.01f && !Blocked(dx)) return dx * distance;
+
+            Vector3 dz = new Vector3(0, 0, dir.z).normalized;
+            if (dz.sqrMagnitude > 0.01f && !Blocked(dz)) return dz * distance;
+
+            return Vector3.zero;
         }
 
         private void TickFishing()

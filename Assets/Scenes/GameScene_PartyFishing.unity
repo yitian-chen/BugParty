@@ -6229,6 +6229,7 @@ MonoBehaviour:
   defaultFishingItem: {fileID: 11400000, guid: b985c7d9ad782c545aaaea99e71fc9aa, type: 2}
   defaultDisruptionItem: {fileID: 11400000, guid: 6adb3219b7afebf4eb8324a73108609e,
     type: 2}
+  seedItemForDemo: {fileID: 11400000, guid: 5a810c2551bc5914d84a05950be0e840, type: 2}
   autoStart: 1
 --- !u!4 &1517707644
 Transform:
@@ -6392,7 +6393,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 0.5}
   m_AnchorMax: {x: 0, y: 0.5}
   m_AnchoredPosition: {x: 20, y: 0}
-  m_SizeDelta: {x: 300, y: 220}
+  m_SizeDelta: {x: 320, y: 300}
   m_Pivot: {x: 0, y: 0.5}
 --- !u!114 &1548338046
 MonoBehaviour:
@@ -6865,7 +6866,12 @@ MonoBehaviour:
     <color=#FFD700>E</color>    
     Fish / Take fish
 
-    <color=#FFD700>Q</color>     Drop fish'
+    <color=#FFD700>Q</color>     Drop fish
+
+    <color=#FFD700>1</color>    
+    Use item slot 1
+
+    <color=#FFD700>2</color>     Use item slot 2'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

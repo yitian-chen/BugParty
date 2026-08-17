@@ -180,8 +180,16 @@ namespace PartyGame
 
         private void UseMine(ItemInstance inst)
         {
-            // TODO(阶段 D3-D5): implement Mine spawning here. Kept as stub so the switch compiles.
-            // Placeholder: consume durability so the slot still updates in HUD.
+            if (config == null || config.minePrefabRef == null) return;
+            // Do not place while standing on an island (avoid griefing self-safe zones).
+            if (currentIsland != null) return;
+
+            Vector3 spawnPos = transform.position + lastMoveDir.normalized * 1.2f;
+            spawnPos.y = 0.1f;
+            var mineGO = Instantiate(config.minePrefabRef, spawnPos, Quaternion.identity);
+            var mine = mineGO.GetComponent<Mine>();
+            if (mine != null) mine.Configure(this);
+
             inst.durability--;
             if (inst.durability <= 0) ClearEmptySlots();
             OnItemsChanged?.Invoke(this, EventArgs.Empty);
@@ -385,6 +393,14 @@ namespace PartyGame
                 }
             }
             return false;
+        }
+
+        /// <summary>Demo helper: overwrite the last slot with a new item (used to seed a Mine when both slots are full).</summary>
+        public void ForceReplaceLastSlot(ItemDataSO data)
+        {
+            if (data == null || itemSlots == null || itemSlots.Length == 0) return;
+            itemSlots[itemSlots.Length - 1] = new ItemInstance(data);
+            OnItemsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void Stun(float duration)

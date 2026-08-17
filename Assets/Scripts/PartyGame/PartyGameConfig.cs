@@ -44,6 +44,8 @@ namespace PartyGame
         public float knifeRange = 1.5f;
         public float mineStunDuration = 5f;
         public float mineTriggerRadius = 1f;
+        [Tooltip("Prefab used when a player places a Mine. Must have a Mine component.")]
+        public GameObject minePrefabRef;
 
         [Header("Scoring")]
         public int commonFishScore = 1;

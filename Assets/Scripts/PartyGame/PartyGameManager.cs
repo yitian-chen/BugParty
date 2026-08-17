@@ -30,6 +30,8 @@ namespace PartyGame
         [Header("Default Loadout (v0.1 — no search phase yet)")]
         [SerializeField] private ItemDataSO defaultFishingItem;
         [SerializeField] private ItemDataSO defaultDisruptionItem;
+        [Tooltip("Optional extra seed item (e.g. a demo Mine) to overwrite an empty slot for phase-B testing.")]
+        [SerializeField] private ItemDataSO seedItemForDemo;
 
         [Tooltip("If true, immediately skip WaitingToStart on scene load (useful during phase A prototyping).")]
         [SerializeField] private bool autoStart = true;
@@ -161,6 +163,11 @@ namespace PartyGame
             {
                 if (defaultFishingItem != null) p.TryEquipItem(defaultFishingItem);
                 if (defaultDisruptionItem != null) p.TryEquipItem(defaultDisruptionItem);
+                if (seedItemForDemo != null)
+                {
+                    // Demo helper: if all slots are full, replace the last one so testers can try the seed item.
+                    if (!p.TryEquipItem(seedItemForDemo)) p.ForceReplaceLastSlot(seedItemForDemo);
+                }
             }
         }
     }

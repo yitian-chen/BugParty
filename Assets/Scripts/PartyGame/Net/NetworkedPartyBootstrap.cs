@@ -5,20 +5,30 @@ using UnityEngine;
 namespace PartyGame.Net
 {
     /// <summary>
-    /// Sits in the game scene alongside NetworkManager. On Awake:
+    /// Owns the persistent NetworkManager for the whole session.
+    /// Placed in LobbyScene; DontDestroyOnLoad keeps it alive across the load into GameScene.
+    ///
+    /// On Start:
     ///   - If LanBootstrapData says Host/Client, apply Address+Port and start that role.
-    ///   - Otherwise (Play-in-Editor with no menu), fall back to StartHost so solo testing
-    ///     still works.
-    /// Consumes the bootstrap data so a scene reload starts fresh.
+    ///   - Otherwise stay idle (menu will drive it later).
     /// </summary>
     [RequireComponent(typeof(NetworkManager))]
     public class NetworkedPartyBootstrap : MonoBehaviour
     {
-        [Tooltip("If no LAN menu handed us a mode, start a Host anyway so the game scene works when played directly.")]
+        [Tooltip("If no LAN menu handed us a mode, start a Host anyway so the lobby scene works standalone (Editor Play from lobby).")]
         [SerializeField] private bool autoHostIfUnset = true;
+
+        private static bool bootstrapped;
+
+        private void Awake()
+        {
+            // Survive across LobbyScene -> GameScene load.
+            DontDestroyOnLoad(gameObject);
+        }
 
         private void Start()
         {
+            if (bootstrapped) return; // Only bootstrap once per session — if lobby is re-entered we skip.
             var nm = NetworkManager.Singleton;
             if (nm == null)
             {
@@ -27,7 +37,7 @@ namespace PartyGame.Net
             }
             if (nm.IsHost || nm.IsClient || nm.IsServer)
             {
-                Debug.Log("[NetworkedPartyBootstrap] Already networked; skipping bootstrap.");
+                bootstrapped = true;
                 return;
             }
 
@@ -59,6 +69,7 @@ namespace PartyGame.Net
             }
 
             LanBootstrapData.Consume();
+            bootstrapped = true;
         }
     }
 }

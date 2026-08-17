@@ -16,7 +16,7 @@ namespace PartyGame.Net
     public class LanMenuUI : MonoBehaviour
     {
         [Header("Scene to load after Host/Join is pressed")]
-        [SerializeField] private string gameSceneName = "GameScene_PartyFishing";
+        [SerializeField] private string lobbySceneName = "LanLobbyScene";
 
         [Header("Buttons")]
         [SerializeField] private Button hostButton;
@@ -61,12 +61,12 @@ namespace PartyGame.Net
 
         private void LoadGame()
         {
-            if (string.IsNullOrWhiteSpace(gameSceneName))
+            if (string.IsNullOrWhiteSpace(lobbySceneName))
             {
-                Log("Game scene name not set.");
+                Log("Lobby scene name not set.");
                 return;
             }
-            SceneManager.LoadScene(gameSceneName);
+            SceneManager.LoadScene(lobbySceneName);
         }
 
         private string ReadAddress()

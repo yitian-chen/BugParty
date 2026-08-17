@@ -87,15 +87,21 @@ namespace PartyGame
 
         private void Start()
         {
-            // In solo mode Start runs immediately. In networked mode we wait for the server
-            // to finish spawning players first (see StartCoroutine below in a future step),
-            // but auto-start is still fine to kick off countdown so the match runs.
+            // In networked mode, wait one full frame after network spawn so the PartyPlayerSpawner
+            // has already spawned player objects for every connected client. In solo mode we can
+            // just kick off immediately.
             if (autoStart)
             {
-                // Give the spawner a moment on the server to spawn players (which happens
-                // synchronously in OnServerStarted). Solo mode has no spawner delay.
-                if (CanAuthor) BeginCountdown();
+                if (IsSoloMode) { if (CanAuthor) BeginCountdown(); }
+                else if (IsServer) StartCoroutine(BeginCountdownNextFrame());
             }
+        }
+
+        private System.Collections.IEnumerator BeginCountdownNextFrame()
+        {
+            yield return null; // one frame — spawner runs from OnLoadEventCompleted
+            yield return null; // extra safety
+            BeginCountdown();
         }
 
         public void BeginCountdown()

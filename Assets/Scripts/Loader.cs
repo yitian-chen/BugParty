@@ -14,6 +14,7 @@ public static class Loader
         LoadingScene,
         LobbyScene,
         CharacterSelectScene,
+        GameScene_PartyFishing,
     }
     private static Scene targetScene;
 

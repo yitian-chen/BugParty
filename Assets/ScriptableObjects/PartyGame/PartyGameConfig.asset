@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5ceb8f49e29418a48ac4816411bc24fb, type: 3}
+  m_Name: PartyGameConfig
+  m_EditorClassIdentifier: 
+  matchDuration: 180
+  countdownToStart: 3
+  waveInterval: 30
+  totalWaves: 6
+  frenzyStartTime: 150
+  commonSpotsPerWave: 3
+  fishPerCommonSpot: 3
+  commonSpotRadius: 2
+  goldenSpotRadius: 3
+  playerMoveSpeed: 6
+  raftFishCapacity: 2
+  itemSlotCount: 2
+  largeNetDuration: 5
+  largeNetFishAmount: 2
+  smallNetDuration: 5
+  smallNetFishAmount: 1
+  bareHandDuration: 8
+  bareHandFishAmount: 1
+  smallNetDurability: 3
+  largeNetDurability: 3
+  knifeDurability: 3
+  knifeRange: 1.5
+  mineStunDuration: 5
+  mineTriggerRadius: 1
+  commonFishScore: 1
+  goldenFishScore: 2
+  frenzyMoveMultiplier: 2
+  frenzyFishingSpeedMultiplier: 2
+  mapHalfExtents: {x: 20, y: 15}
+  commonSpotMinDistanceFromIsland: 4

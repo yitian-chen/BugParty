@@ -254,9 +254,12 @@ namespace PartyGame
 
         private Vector3 TryMove(Vector3 dir, float distance)
         {
-            // Broad-phase capsule cast from the player's current position.
-            const float castRadius = 0.6f;
-            float castHeight = 1.5f;
+            // Cast radius matches the player's actual CapsuleCollider (~1.5) so the
+            // cast footprint aligns with the physical hull — otherwise a smaller cast
+            // radius lets the hull sink into obstacles and then subsequent casts from
+            // "inside" don't register a hit, trapping the player.
+            const float castRadius = 1.4f;
+            const float castHeight = 3f;
             Vector3 p1 = transform.position + Vector3.up * castRadius;
             Vector3 p2 = transform.position + Vector3.up * (castHeight - castRadius);
 
@@ -279,7 +282,51 @@ namespace PartyGame
             Vector3 dz = new Vector3(0, 0, dir.z).normalized;
             if (dz.sqrMagnitude > 0.01f && !Blocked(dz)) return dz * distance;
 
+            // Fully blocked. If we've been shoved into geometry (e.g. spawn overlap,
+            // mine knockback, or a prior frame's slide), push the player out along the
+            // shortest separation vector so we never get permanently stuck.
+            TryEscapeOverlap();
             return Vector3.zero;
+        }
+
+        /// <summary>
+        /// If the player's CapsuleCollider is currently overlapping non-trigger geometry,
+        /// nudge the player out along the shortest separation direction (world-space).
+        /// </summary>
+        private void TryEscapeOverlap()
+        {
+            const float capsuleRadius = 1.4f;
+            const float capsuleHeight = 3f;
+            Vector3 p1 = transform.position + Vector3.up * capsuleRadius;
+            Vector3 p2 = transform.position + Vector3.up * (capsuleHeight - capsuleRadius);
+
+            Collider[] overlaps = Physics.OverlapCapsule(p1, p2, capsuleRadius, ~0, QueryTriggerInteraction.Ignore);
+            if (overlaps == null || overlaps.Length == 0) return;
+
+            Collider selfCol = GetComponent<Collider>();
+            Vector3 pushSum = Vector3.zero;
+
+            foreach (Collider other in overlaps)
+            {
+                if (other == null) continue;
+                if (other.transform.IsChildOf(transform) || other.transform == transform) continue;
+                if (selfCol == null) continue;
+
+                if (Physics.ComputePenetration(
+                        selfCol, transform.position, transform.rotation,
+                        other, other.transform.position, other.transform.rotation,
+                        out Vector3 dir, out float dist))
+                {
+                    dir.y = 0f;
+                    if (dir.sqrMagnitude < 1e-6f) continue;
+                    pushSum += dir.normalized * (dist + 0.02f);
+                }
+            }
+
+            if (pushSum.sqrMagnitude > 1e-6f)
+            {
+                transform.position += pushSum;
+            }
         }
 
         private void TickFishing()

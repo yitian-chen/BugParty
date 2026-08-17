@@ -14,6 +14,10 @@ namespace PartyGame
         [SerializeField] private Island island;
         [SerializeField] private Transform stackRoot;
         [SerializeField] private GameObject fishDiscPrefab;
+        [Tooltip("Optional: use this prefab for common fish (overrides fishDiscPrefab).")]
+        [SerializeField] private GameObject fishCommonPrefab;
+        [Tooltip("Optional: use this prefab for golden fish (overrides fishDiscPrefab).")]
+        [SerializeField] private GameObject fishGoldenPrefab;
         [SerializeField] private Material commonMat;
         [SerializeField] private Material goldenMat;
 
@@ -23,6 +27,13 @@ namespace PartyGame
         [SerializeField] private float rowHeight = 0.12f;
         [SerializeField] private float flyDuration = 0.6f;
         [SerializeField] private float flyArc = 1.5f;
+
+        [Tooltip("Uniform scale applied to spawned fish (relative to the prefab).")]
+        [SerializeField] private float fishSpawnScale = 0.01f;
+        [Tooltip("Local euler rotation applied to spawned fish. Default lays fish flat with head along +X of the stack; alternation flips flank.")]
+        [SerializeField] private Vector3 fishSpawnEuler = new Vector3(90f, 0f, 0f);
+        [Tooltip("If true, alternates fish roll so one shows one flank, the next shows the other (eyes up vs down).")]
+        [SerializeField] private bool alternateOrientation = true;
 
         private readonly List<GameObject> commonDiscs = new List<GameObject>();
         private readonly List<GameObject> goldenDiscs = new List<GameObject>();
@@ -69,14 +80,22 @@ namespace PartyGame
         /// </summary>
         public void SpawnFlyingFish(FishType type, Vector3 fromWorld)
         {
-            if (fishDiscPrefab == null || stackRoot == null) return;
-            Material mat = type == FishType.Common ? commonMat : goldenMat;
+            if (stackRoot == null) return;
+            GameObject prefab = type == FishType.Common
+                ? (fishCommonPrefab != null ? fishCommonPrefab : fishDiscPrefab)
+                : (fishGoldenPrefab != null ? fishGoldenPrefab : fishDiscPrefab);
+            if (prefab == null) return;
 
-            var d = Instantiate(fishDiscPrefab, stackRoot);
-            if (mat != null)
+            var d = Instantiate(prefab, stackRoot);
+            bool usingFallback = (type == FishType.Common ? fishCommonPrefab == null : fishGoldenPrefab == null);
+            if (usingFallback)
             {
-                var r = d.GetComponentInChildren<Renderer>();
-                if (r != null) r.sharedMaterial = mat;
+                Material mat = type == FishType.Common ? commonMat : goldenMat;
+                if (mat != null)
+                {
+                    var r = d.GetComponentInChildren<Renderer>();
+                    if (r != null) r.sharedMaterial = mat;
+                }
             }
 
             List<GameObject> list = type == FishType.Common ? commonDiscs : goldenDiscs;
@@ -84,11 +103,14 @@ namespace PartyGame
             Vector3 destLocal = ComputeStackLocalPos(targetIndex);
             list.Add(d); // reserve the slot so subsequent flies compute the next slot
 
+            // Apply scale + orientation ahead of the fly animation so we see the right pose.
+            d.transform.localScale = Vector3.one * fishSpawnScale;
+
             d.transform.position = fromWorld;
-            StartCoroutine(FlyRoutine(d.transform, destLocal));
+            StartCoroutine(FlyRoutine(d.transform, destLocal, targetIndex));
         }
 
-        private IEnumerator FlyRoutine(Transform t, Vector3 destLocal)
+        private IEnumerator FlyRoutine(Transform t, Vector3 destLocal, int slotIndex)
         {
             Vector3 startWorld = t.position;
             float e = 0f;
@@ -107,7 +129,10 @@ namespace PartyGame
             {
                 t.SetParent(stackRoot, false);
                 t.localPosition = destLocal;
-                t.localRotation = Quaternion.identity;
+                Vector3 euler = fishSpawnEuler;
+                if (alternateOrientation && slotIndex % 2 == 1) euler.x = -euler.x;
+                t.localRotation = Quaternion.Euler(euler);
+                t.localScale = Vector3.one * fishSpawnScale;
             }
         }
     }

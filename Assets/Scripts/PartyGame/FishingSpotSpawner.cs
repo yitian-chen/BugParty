@@ -27,10 +27,31 @@ namespace PartyGame
 
         public void OnMatchStarted()
         {
+            // If we pre-spawned wave 0 during countdown, unpause it and continue from wave 1.
+            if (nextWaveIndex == 0 && activeSpots.Count > 0)
+            {
+                foreach (var s in activeSpots) if (s != null) s.SetPaused(false);
+                nextWaveIndex = 1;
+                nextWaveTimer = Config.waveInterval;
+                return;
+            }
+
             nextWaveIndex = 0;
             nextWaveTimer = 0f;
             waveActive = false;
             ClearActiveSpots();
+        }
+
+        /// <summary>
+        /// Called during CountdownToStart to place the first wave visible but paused.
+        /// </summary>
+        public void PreSpawnFirstWave()
+        {
+            if (Config == null) return;
+            if (activeSpots.Count > 0) return;
+            SpawnWave(0);
+            foreach (var s in activeSpots) if (s != null) s.SetPaused(true);
+            nextWaveIndex = 0; // Will be advanced to 1 in OnMatchStarted.
         }
 
         private void Update()
@@ -85,12 +106,28 @@ namespace PartyGame
         {
             Vector3 pos = Vector3.zero;
             Vector2 half = Config.mapHalfExtents;
-            for (int attempt = 0; attempt < 20; attempt++)
+            float edgeMargin = 3f; // Keep away from map edges.
+            float xMax = Mathf.Max(1f, half.x - edgeMargin);
+            float zMax = Mathf.Max(1f, half.y - edgeMargin);
+            float minSpotDist = Config.commonSpotRadius * 2.5f; // Prevent overlaps.
+
+            for (int attempt = 0; attempt < 40; attempt++)
             {
-                pos = new Vector3(Random.Range(-half.x, half.x), 0f, Random.Range(-half.y, half.y));
-                if (IsFarEnoughFromIslands(pos)) return pos;
+                pos = new Vector3(Random.Range(-xMax, xMax), 0f, Random.Range(-zMax, zMax));
+                if (IsFarEnoughFromIslands(pos) && IsFarEnoughFromActiveSpots(pos, minSpotDist)) return pos;
             }
             return pos;
+        }
+
+        private bool IsFarEnoughFromActiveSpots(Vector3 pos, float minDist)
+        {
+            foreach (FishingSpot s in activeSpots)
+            {
+                if (s == null) continue;
+                Vector3 delta = new Vector3(pos.x - s.transform.position.x, 0f, pos.z - s.transform.position.z);
+                if (delta.sqrMagnitude < minDist * minDist) return false;
+            }
+            return true;
         }
 
         private bool IsFarEnoughFromIslands(Vector3 pos)

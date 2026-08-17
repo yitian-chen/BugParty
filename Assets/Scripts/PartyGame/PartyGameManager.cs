@@ -78,6 +78,7 @@ namespace PartyGame
             }
             countdownTimer = config.countdownToStart;
             ChangeState(State.CountdownToStart);
+            spawner?.PreSpawnFirstWave();
         }
 
         private void Update()

@@ -75,6 +75,7 @@ namespace PartyGame
             if (subscribed && GameInput.Instance != null)
             {
                 GameInput.Instance.OnInteractAction -= HandleInteract;
+                GameInput.Instance.OnInteractAlternateAction -= HandleInteractAlternate;
                 subscribed = false;
             }
         }
@@ -88,24 +89,102 @@ namespace PartyGame
                 return;
             }
             GameInput.Instance.OnInteractAction += HandleInteract;
+            GameInput.Instance.OnInteractAlternateAction += HandleInteractAlternate;
             subscribed = true;
             Debug.Log($"[PartyPlayer P{playerIndex}] Subscribed to GameInput.OnInteractAction.");
         }
 
         private void Update()
         {
+            // Lock movement during pre-match countdown.
+            bool locked = PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying();
+
             if (stunTimer > 0f)
             {
                 stunTimer -= Time.deltaTime;
                 movementInput = Vector3.zero;
             }
+            else if (locked)
+            {
+                movementInput = Vector3.zero;
+            }
             else
             {
                 ReadMovementInput();
+                PollItemHotkeys();
             }
 
             TickFishing();
             HandleMovement();
+        }
+
+        private void PollItemHotkeys()
+        {
+            if (!useGameInput) return;
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb == null) return;
+            if (kb.digit1Key.wasPressedThisFrame) TryUseItem(0);
+            if (kb.digit2Key.wasPressedThisFrame) TryUseItem(1);
+        }
+
+        public void TryUseItem(int slotIndex)
+        {
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+            if (itemSlots == null || slotIndex < 0 || slotIndex >= itemSlots.Length) return;
+
+            var inst = itemSlots[slotIndex];
+            if (inst == null || inst.IsEmpty) return;
+
+            switch (inst.data.kind)
+            {
+                case ItemKind.Knife: UseKnife(inst); break;
+                case ItemKind.Mine: UseMine(inst); break;
+                // Nets are consumed automatically at fishing completion, not by hotkey.
+                default: break;
+            }
+        }
+
+        private void UseKnife(ItemInstance inst)
+        {
+            float range = config != null ? config.knifeRange : 1.5f;
+            PartyPlayer target = FindNearestFishingVictim(range);
+            if (target == null) return; // Miss — do not consume durability.
+
+            // Break the victim's fishing (their net/hand item is consumed via Interrupt())
+            target.ActiveFishing?.Interrupt();
+
+            inst.durability--;
+            if (inst.durability <= 0) ClearEmptySlots();
+            OnItemsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private PartyPlayer FindNearestFishingVictim(float range)
+        {
+            PartyPlayer best = null;
+            float bestDist = range;
+            var all = FindObjectsOfType<PartyPlayer>();
+            foreach (var p in all)
+            {
+                if (p == this) continue;
+                if (p.ActiveFishing == null || p.ActiveFishing.IsFinished) continue;
+                float d = Vector3.Distance(transform.position, p.transform.position);
+                if (d <= bestDist)
+                {
+                    best = p;
+                    bestDist = d;
+                }
+            }
+            return best;
+        }
+
+        private void UseMine(ItemInstance inst)
+        {
+            // TODO(阶段 D3-D5): implement Mine spawning here. Kept as stub so the switch compiles.
+            // Placeholder: consume durability so the slot still updates in HUD.
+            inst.durability--;
+            if (inst.durability <= 0) ClearEmptySlots();
+            OnItemsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private void ReadMovementInput()
@@ -157,40 +236,41 @@ namespace PartyGame
 
         private void HandleInteract(object sender, EventArgs e)
         {
-            Debug.Log($"[PartyPlayer P{playerIndex}] HandleInteract fired. spot={(currentFishingSpot!=null?currentFishingSpot.name:"null")} island={(currentIsland!=null?currentIsland.name:"null")} stunned={IsStunned} activeFishing={(activeFishing!=null)} state={(PartyGameManager.Instance!=null?PartyGameManager.Instance.CurrentState.ToString():"nogm")}");
+            Debug.Log($"[PartyPlayer P{playerIndex}] E (Interact) spot={(currentFishingSpot!=null?currentFishingSpot.name:"null")} island={(currentIsland!=null?currentIsland.name:"null")} carried={CarriedFishTotal}");
 
             if (IsStunned) return;
             if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
 
-            // Priority: fishing spot > island (deposit or steal).
+            // E: fish or take.
             if (currentFishingSpot != null && activeFishing == null)
             {
                 StartFishing(currentFishingSpot);
                 return;
             }
-
-            if (currentIsland != null)
+            if (currentIsland != null && CarriedFishTotal < RaftFishCapacity)
             {
-                // Any island accepts deposit; any island can be stolen from.
-                // Priority: if the raft has fish AND the island still has space (unlimited anyway) → deposit.
-                //          else if the raft has room AND the island has fish → steal.
-                if (CarriedFishTotal > 0)
+                currentIsland.StealOne(this);
+            }
+        }
+
+        private void HandleInteractAlternate(object sender, EventArgs e)
+        {
+            Debug.Log($"[PartyPlayer P{playerIndex}] Q (Deposit) island={(currentIsland!=null?currentIsland.name:"null")} carried={CarriedFishTotal}");
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+
+            // Q: deposit one fish to any island.
+            if (currentIsland != null && CarriedFishTotal > 0)
+            {
+                var visual = currentIsland.GetComponent<IslandFishVisual>();
+                // Peek the fish we're about to deposit (common preferred) — must match Island.DepositOne order.
+                FishType toDeposit = CarriedCommon > 0 ? FishType.Common : FishType.Golden;
+                if (visual != null)
                 {
-                    int cCommon = carriedCommon;
-                    int cGolden = carriedGolden;
-                    var visual = currentIsland.GetComponent<IslandFishVisual>();
-                    if (visual != null)
-                    {
-                        Vector3 from = transform.position + Vector3.up * 0.8f;
-                        for (int i = 0; i < cCommon; i++) visual.SpawnFlyingFish(FishType.Common, from);
-                        for (int i = 0; i < cGolden; i++) visual.SpawnFlyingFish(FishType.Golden, from);
-                    }
-                    currentIsland.DepositAll(this);
+                    Vector3 from = transform.position + Vector3.up * 0.8f;
+                    visual.SpawnFlyingFish(toDeposit, from);
                 }
-                else if (CarriedFishTotal < RaftFishCapacity)
-                {
-                    currentIsland.StealOne(this);
-                }
+                currentIsland.DepositOne(this);
             }
         }
 
@@ -280,6 +360,16 @@ namespace PartyGame
             carriedGolden = 0;
             if (c > 0 || g > 0) OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
             return (c, g);
+        }
+
+        /// <summary>Removes and returns one fish from the raft (common first, then golden). Assumes caller checked CarriedFishTotal > 0.</summary>
+        public FishType RemoveOneFishForDeposit()
+        {
+            FishType t;
+            if (carriedCommon > 0) { carriedCommon--; t = FishType.Common; }
+            else { carriedGolden--; t = FishType.Golden; }
+            OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
+            return t;
         }
 
         public bool TryEquipItem(ItemDataSO data)

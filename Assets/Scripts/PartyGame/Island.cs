@@ -44,6 +44,17 @@ namespace PartyGame
             }
         }
 
+        /// <summary>Deposit a single fish. Returns the type deposited (Common preferred), or null if raft empty.</summary>
+        public FishType? DepositOne(PartyPlayer player)
+        {
+            if (player == null) return null;
+            if (player.CarriedFishTotal <= 0) return null;
+            FishType t = player.RemoveOneFishForDeposit();
+            if (t == FishType.Common) commonFishCount++; else goldenFishCount++;
+            OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+            return t;
+        }
+
         /// <summary>Steal a single fish. Returns the type stolen (Common preferred), or null if empty.</summary>
         public FishType? StealOne(PartyPlayer thief)
         {

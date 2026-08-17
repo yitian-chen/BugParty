@@ -18,6 +18,7 @@ namespace PartyGame
         private int remainingFish;
         private float lifetime;
         private bool unlimited;
+        private bool paused;
         private SphereCollider trigger;
 
         private readonly HashSet<PartyPlayer> playersInside = new HashSet<PartyPlayer>();
@@ -51,12 +52,17 @@ namespace PartyGame
 
         private void Update()
         {
-            if (IsExpired) return;
+            if (IsExpired || paused) return;
             lifetime -= Time.deltaTime;
             if (lifetime <= 0f)
             {
                 Expire();
             }
+        }
+
+        public void SetPaused(bool p)
+        {
+            paused = p;
         }
 
         public bool TryConsumeFish(int amount, out int actualConsumed)

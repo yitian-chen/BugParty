@@ -19,8 +19,8 @@
 ## 克隆与运行
 
 ```bash
-git clone https://github.com/Accommodate111/HuNaoChuFang.git
-cd HuNaoChuFang
+git clone git@github.com:yitian-chen/BugParty.git
+cd BugParty
 git lfs install && git lfs pull
 ```
 
@@ -93,5 +93,5 @@ Assets/
 
 ## 相关链接
 
-- 仓库地址：https://github.com/Accommodate111/HuNaoChuFang
+- 仓库地址：https://github.com/yitian-chen/BugParty
 - 设计文档：`Assets/Docs/游戏设计文档.md`

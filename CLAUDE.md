@@ -135,4 +135,4 @@ Assets/
 - 主分支：`main`（当前 = 派对游戏，v0.1 胡闹厨房状态在 tag/更早 commit）
 - 派对游戏改造分支：`feature/party-fishing`
 - 用户：`yitianchen`
-- 项目远端：`https://github.com/Accommodate111/HuNaoChuFang.git`
+- 项目远端：`git@github.com:yitian-chen/BugParty.git`

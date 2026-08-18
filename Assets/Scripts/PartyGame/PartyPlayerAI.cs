@@ -131,7 +131,22 @@ namespace PartyGame
 
             // 2) Personality-biased pick between fishing and stealing.
             var spot = FindBestSpot();
-            var enemyIsland = FindEnemyIslandWithFish();
+
+            // Target stickiness: if we're mid-steal and the current victim still has fish and we're
+            // not full, keep the same target instead of re-picking. Otherwise the weighted random
+            // below would fire every decisionInterval and the bot would jitter between islands.
+            Island enemyIsland;
+            if (state == State.StealFish && targetEnemyIsland != null
+                && targetEnemyIsland.OwnerPlayerIndex != player.PlayerIndex
+                && (targetEnemyIsland.CommonFishCount + targetEnemyIsland.GoldenFishCount) > 0
+                && player.CarriedFishTotal < player.RaftFishCapacity)
+            {
+                enemyIsland = targetEnemyIsland;
+            }
+            else
+            {
+                enemyIsland = PickEnemyIslandWeighted();
+            }
             bool preferSteal = Random.value < personality.stealBias;
             // If already carrying some fish, nudge toward opportunistic stealing.
             if (hasFish && enemyIsland != null && Random.value < 0.35f) preferSteal = true;
@@ -180,24 +195,43 @@ namespace PartyGame
             return best;
         }
 
-        private Island FindEnemyIslandWithFish()
+        /// <summary>
+        /// Pick an enemy island to steal from using weighted-random selection instead of argmax.
+        /// Weight = fishStock * 2 + 1 (so richer islands are more likely, but every viable island
+        /// has a positive chance). Distance is intentionally ignored — bots would otherwise gang up
+        /// on whoever's closest to spawn.
+        /// </summary>
+        private Island PickEnemyIslandWeighted()
         {
             var mgr = PartyGameManager.Instance;
             if (mgr == null) return null;
-            Island best = null;
-            float bestScore = float.NegativeInfinity;
+
+            // Two-pass: collect candidates + total weight, then sample.
+            float totalWeight = 0f;
+            int candidateCount = 0;
             foreach (var island in mgr.Islands)
             {
                 if (island == null) continue;
                 if (island.OwnerPlayerIndex == player.PlayerIndex) continue;
                 int stock = island.CommonFishCount + island.GoldenFishCount;
                 if (stock <= 0) continue;
-                float dist = Vector3.Distance(transform.position, island.transform.position);
-                // Prefer islands with more fish; nearer > farther.
-                float score = stock * 8f - dist;
-                if (score > bestScore) { bestScore = score; best = island; }
+                totalWeight += stock * 2f + 1f;
+                candidateCount++;
             }
-            return best;
+            if (candidateCount == 0 || totalWeight <= 0f) return null;
+
+            float pick = Random.value * totalWeight;
+            foreach (var island in mgr.Islands)
+            {
+                if (island == null) continue;
+                if (island.OwnerPlayerIndex == player.PlayerIndex) continue;
+                int stock = island.CommonFishCount + island.GoldenFishCount;
+                if (stock <= 0) continue;
+                float w = stock * 2f + 1f;
+                pick -= w;
+                if (pick <= 0f) return island;
+            }
+            return null; // unreachable if candidateCount>0, but keep the compiler happy.
         }
 
         // --- Movement / action ---

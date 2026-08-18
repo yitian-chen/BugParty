@@ -120,42 +120,78 @@ namespace PartyGame
 
         private Vector3 PickCommonSpotPosition()
         {
-            Vector3 pos = Vector3.zero;
             Vector2 half = Config.mapHalfExtents;
-            float edgeMargin = 3f; // Keep away from map edges.
+            float edgeMargin = 3f;
             float xMax = Mathf.Max(1f, half.x - edgeMargin);
             float zMax = Mathf.Max(1f, half.y - edgeMargin);
-            float minSpotDist = Config.commonSpotRadius * 2.5f; // Prevent overlaps.
+            float minSpotDist = Config.commonSpotRadius * 2.5f;
+            Vector3 center = mapCenter != null ? mapCenter.position : Vector3.zero;
 
-            for (int attempt = 0; attempt < 40; attempt++)
+            // Sample many candidates; score each by (min distance to any island) minus penalties for
+            // (a) being close to other active spots, (b) being far from the map center. Then take the
+            // highest-scoring candidate. This guarantees we always pick the *most central* option
+            // available rather than falling back to a poor last-attempt point when the min-distance
+            // hard filter can't be satisfied.
+            Vector3 best = center;
+            float bestScore = float.NegativeInfinity;
+            const int candidateCount = 24;
+            for (int i = 0; i < candidateCount; i++)
             {
-                pos = new Vector3(Random.Range(-xMax, xMax), 0f, Random.Range(-zMax, zMax));
-                if (IsFarEnoughFromIslands(pos) && IsFarEnoughFromActiveSpots(pos, minSpotDist)) return pos;
+                Vector3 pos = new Vector3(Random.Range(-xMax, xMax), 0f, Random.Range(-zMax, zMax));
+
+                float minIslandDist = MinDistanceToIsland(pos);
+                if (minIslandDist < Config.commonSpotMinDistanceFromIsland) continue; // hard reject too-close-to-island
+
+                float minSpotOverlap = MinDistanceToActiveSpots(pos);
+                if (minSpotOverlap < minSpotDist) continue; // hard reject overlap
+
+                // Score: reward staying far from islands; penalize distance from map center.
+                float distFromCenter = new Vector2(pos.x - center.x, pos.z - center.z).magnitude;
+                float score = minIslandDist - 0.4f * distFromCenter;
+                if (score > bestScore) { bestScore = score; best = pos; }
             }
-            return pos;
+
+            // If no candidate survived both hard filters (rare with 24 samples on a small map), fall
+            // back to the most central spot that still respects the min-island distance.
+            if (bestScore == float.NegativeInfinity)
+            {
+                for (int i = 0; i < candidateCount * 2; i++)
+                {
+                    Vector3 pos = new Vector3(Random.Range(-xMax, xMax), 0f, Random.Range(-zMax, zMax));
+                    float minIslandDist = MinDistanceToIsland(pos);
+                    if (minIslandDist < Config.commonSpotMinDistanceFromIsland) continue;
+                    float distFromCenter = new Vector2(pos.x - center.x, pos.z - center.z).magnitude;
+                    float score = -distFromCenter;
+                    if (score > bestScore) { bestScore = score; best = pos; }
+                }
+            }
+            return best;
         }
 
-        private bool IsFarEnoughFromActiveSpots(Vector3 pos, float minDist)
+        private float MinDistanceToActiveSpots(Vector3 pos)
         {
+            float min = float.PositiveInfinity;
             foreach (FishingSpot s in activeSpots)
             {
                 if (s == null) continue;
                 Vector3 delta = new Vector3(pos.x - s.transform.position.x, 0f, pos.z - s.transform.position.z);
-                if (delta.sqrMagnitude < minDist * minDist) return false;
+                float d = delta.magnitude;
+                if (d < min) min = d;
             }
-            return true;
+            return min;
         }
 
-        private bool IsFarEnoughFromIslands(Vector3 pos)
+        private float MinDistanceToIsland(Vector3 pos)
         {
-            float minDist = Config.commonSpotMinDistanceFromIsland;
+            float min = float.PositiveInfinity;
             foreach (Transform t in islandCenters)
             {
                 if (t == null) continue;
                 Vector3 delta = new Vector3(pos.x - t.position.x, 0f, pos.z - t.position.z);
-                if (delta.sqrMagnitude < minDist * minDist) return false;
+                float d = delta.magnitude;
+                if (d < min) min = d;
             }
-            return true;
+            return min;
         }
 
         private void ClearActiveSpots()

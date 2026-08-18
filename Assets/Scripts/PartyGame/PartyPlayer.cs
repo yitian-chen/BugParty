@@ -127,6 +127,15 @@ namespace PartyGame
             if (activeFishing != null && !activeFishing.IsFinished) activeFishing.Cancel();
         }
 
+        /// <summary>Server-side entry point for AI to use an item slot (mine, knife, etc.).</summary>
+        public void AI_TryUseItem(int slotIndex)
+        {
+            if (!isBot || !CanAuthor) return;
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+            DoUseItem_Server(slotIndex);
+        }
+
         public Vector3 LastMoveDir => lastMoveDir;
 
         private void Awake()

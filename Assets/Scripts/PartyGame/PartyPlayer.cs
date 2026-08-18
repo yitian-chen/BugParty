@@ -391,12 +391,13 @@ namespace PartyGame
             {
                 float turnSpeed = 140f * frenzyMul;
                 float deltaYaw = turn * turnSpeed * Time.deltaTime;
-                (visualRoot != null ? visualRoot : transform).Rotate(0f, deltaYaw, 0f, Space.World);
+                // Rotate the ROOT transform so NetworkTransform replicates the yaw to other clients.
+                transform.Rotate(0f, deltaYaw, 0f, Space.World);
             }
 
             if (Mathf.Abs(forward) > 0.01f)
             {
-                Vector3 fwd = (visualRoot != null ? visualRoot.forward : transform.forward);
+                Vector3 fwd = transform.forward;
                 fwd.y = 0f; fwd.Normalize();
                 lastMoveDir = fwd;
                 float speed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul;

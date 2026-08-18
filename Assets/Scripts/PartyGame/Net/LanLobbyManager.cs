@@ -17,27 +17,38 @@ namespace PartyGame.Net
     {
         public static LanLobbyManager Instance { get; private set; }
 
+        // Sentinel clientId offset for AI bots: real Netcode clientIds are small (0..N),
+        // 10000+ safely avoids collisions and stays inside ulong.
+        public const ulong BotClientIdBase = 10000UL;
+
         [System.Serializable]
         public struct LobbyEntry : INetworkSerializable, System.IEquatable<LobbyEntry>
         {
             public ulong clientId;
             public int slotIndex; // 0..3, -1 = unassigned
             public FixedString32Bytes displayName;
+            public bool isBot;
 
             public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
             {
                 s.SerializeValue(ref clientId);
                 s.SerializeValue(ref slotIndex);
                 s.SerializeValue(ref displayName);
+                s.SerializeValue(ref isBot);
             }
-            public bool Equals(LobbyEntry o) => clientId == o.clientId && slotIndex == o.slotIndex && displayName.Equals(o.displayName);
+            public bool Equals(LobbyEntry o) => clientId == o.clientId && slotIndex == o.slotIndex && displayName.Equals(o.displayName) && isBot == o.isBot;
         }
 
         public NetworkList<LobbyEntry> Entries;
         public NetworkVariable<bool> Started = new NetworkVariable<bool>(false);
 
         [SerializeField] private string gameSceneName = "GameScene_PartyFishing";
-        [SerializeField] private int minPlayersToStart = 2;
+        [SerializeField] private int minPlayersToStart = 1;
+        [SerializeField] private int targetPlayerCount = 4;
+        [SerializeField] private bool fillWithBots = true;
+
+        public int MinPlayersToStart => minPlayersToStart;
+        public int TargetPlayerCount => targetPlayerCount;
 
         private NetworkManager nm;
 
@@ -97,6 +108,7 @@ namespace PartyGame.Net
                 clientId = clientId,
                 slotIndex = slot,
                 displayName = new FixedString32Bytes($"Player {clientId}"),
+                isBot = false,
             };
             Entries.Add(entry);
         }
@@ -131,12 +143,53 @@ namespace PartyGame.Net
         {
             if (!IsServer) return;
             if (Started.Value) return;
-            if (Entries.Count < minPlayersToStart) return;
-            // Ensure everyone has a valid unique slot.
+
+            // Count real players (bots not yet added at this point).
+            int realCount = 0;
+            foreach (var e in Entries) if (!e.isBot) realCount++;
+            if (realCount < minPlayersToStart) return;
+            // Ensure every real player has picked a slot.
+            foreach (var e in Entries) if (!e.isBot && e.slotIndex < 0) return;
+
+            if (fillWithBots) FillBotsToTarget();
+
+            // Post-fill sanity: everyone must have a valid unique slot.
             foreach (var e in Entries) if (e.slotIndex < 0) return;
 
             Started.Value = true;
             nm.SceneManager.LoadScene(gameSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+        }
+
+        /// <summary>
+        /// Add AI bot entries so total player count reaches targetPlayerCount.
+        /// Each bot gets a synthetic clientId (BotClientIdBase + i) and a free slot.
+        /// </summary>
+        private void FillBotsToTarget()
+        {
+            int botIndex = 0;
+            while (Entries.Count < targetPlayerCount)
+            {
+                int slot = PickFreeSlot();
+                if (slot < 0) break; // no more slots (shouldn't happen with 4-slot cap)
+                ulong syntheticId = BotClientIdBase + (ulong)botIndex;
+                // Guarantee uniqueness even if AddClientEntry ran multiple times.
+                while (ContainsClientId(syntheticId)) syntheticId++;
+                var entry = new LobbyEntry
+                {
+                    clientId = syntheticId,
+                    slotIndex = slot,
+                    displayName = new FixedString32Bytes($"Bot {botIndex + 1}"),
+                    isBot = true,
+                };
+                Entries.Add(entry);
+                botIndex++;
+            }
+        }
+
+        private bool ContainsClientId(ulong id)
+        {
+            foreach (var e in Entries) if (e.clientId == id) return true;
+            return false;
         }
 
         /// <summary>Looks up a lobby entry by clientId. Returns default if unknown.</summary>

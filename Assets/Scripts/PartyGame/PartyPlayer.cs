@@ -19,8 +19,13 @@ namespace PartyGame
         [SerializeField] private bool useGameInput = true;
         [SerializeField] private Transform visualRoot;
 
+        // Set true for server-driven AI bots. When true: no GameInput subscription,
+        // no hotkey polling, no local input read; movement/actions come from PartyPlayerAI on the server.
+        private bool isBot;
+
         private Rigidbody rb;
         private Vector3 movementInput;
+        private Vector3 aiMovementInput; // written by PartyPlayerAI on the server
         private Vector3 lastMoveDir = Vector3.forward;
 
         // ---- Server-authoritative state (NetworkVariables) ----
@@ -75,8 +80,54 @@ namespace PartyGame
 
         private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
         private bool CanAuthor => IsSoloMode || IsServer;
-        /// <summary>Owner client (or solo) reads local input.</summary>
-        public bool IsLocalController => IsSoloMode || IsOwner;
+        /// <summary>Owner client (or solo) reads local input. Bots never read local input — the server AI drives them.</summary>
+        public bool IsLocalController => !isBot && (IsSoloMode || IsOwner);
+        public bool IsBot => isBot;
+
+        /// <summary>Marks this player as an AI bot. Must be called on the server before/after spawn.</summary>
+        public void SetIsBot(bool value)
+        {
+            isBot = value;
+            if (isBot && subscribed && GameInput.Instance != null)
+            {
+                GameInput.Instance.OnInteractAction -= HandleInteract;
+                GameInput.Instance.OnInteractAlternateAction -= HandleInteractAlternate;
+                subscribed = false;
+            }
+        }
+
+        /// <summary>Called by PartyPlayerAI on the server every tick; a Vector3 in world-space input space (x=turn, z=forward).</summary>
+        public void SetAIMovement(Vector3 xzInput)
+        {
+            aiMovementInput = new Vector3(xzInput.x, 0f, xzInput.z);
+        }
+
+        /// <summary>Server-side entry point for AI to trigger E (fish / steal).</summary>
+        public void AI_TryInteract()
+        {
+            if (!isBot || !CanAuthor) return;
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+            DoInteract_Server();
+        }
+
+        /// <summary>Server-side entry point for AI to trigger Q (deposit one).</summary>
+        public void AI_TryDepositOne()
+        {
+            if (!isBot || !CanAuthor) return;
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+            DoDepositOne_Server();
+        }
+
+        /// <summary>Server-side entry point for AI to cancel its fishing (e.g. to move away).</summary>
+        public void AI_CancelFishing()
+        {
+            if (!isBot || !CanAuthor) return;
+            if (activeFishing != null && !activeFishing.IsFinished) activeFishing.Cancel();
+        }
+
+        public Vector3 LastMoveDir => lastMoveDir;
 
         private void Awake()
         {
@@ -138,6 +189,11 @@ namespace PartyGame
             if (IsStunned)
             {
                 movementInput = Vector3.zero;
+            }
+            else if (isBot)
+            {
+                // Server drives the bot via SetAIMovement; clients see replicated transform only.
+                movementInput = CanAuthor ? aiMovementInput : Vector3.zero;
             }
             else if (locked || !IsLocalController)
             {
@@ -373,7 +429,9 @@ namespace PartyGame
 
         private void HandleMovement()
         {
-            if (!IsLocalController) return; // Only owner writes to transform; NT replicates.
+            // Real owners write to their own transform; bots are written on the server; clients passive.
+            bool canDriveTransform = isBot ? CanAuthor : IsLocalController;
+            if (!canDriveTransform) return;
 
             float forward = movementInput.z;
             float turn = movementInput.x;
@@ -381,7 +439,7 @@ namespace PartyGame
 
             if (hasInput && (activeFishing != null || IsFishingRemote))
             {
-                if (IsSoloMode) activeFishing?.Cancel();
+                if (IsSoloMode || isBot) activeFishing?.Cancel();
                 else if (IsOwner) CancelFishingServerRpc();
             }
 

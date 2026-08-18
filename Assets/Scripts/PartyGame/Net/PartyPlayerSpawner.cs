@@ -85,7 +85,7 @@ namespace PartyGame.Net
 
             foreach (var entry in lobby.Entries)
             {
-                SpawnFor(entry.clientId, entry.slotIndex);
+                SpawnFor(entry.clientId, entry.slotIndex, entry.isBot);
             }
             spawnedForMatch = true;
         }
@@ -96,14 +96,16 @@ namespace PartyGame.Net
             // PartyPlayer for the departed client stays as-is until match end (host keeps game going).
         }
 
-        private void SpawnFor(ulong clientId, int slot)
+        private void SpawnFor(ulong clientId, int slot, bool isBot)
         {
             if (playerPrefab == null) { Debug.LogError("[PartyPlayerSpawner] playerPrefab not set."); return; }
             if (slot < 0 || slot >= spawnPositions.Length) { Debug.LogWarning($"[PartyPlayerSpawner] slot {slot} out of range."); return; }
 
             Vector3 pos = spawnPositions[slot];
             var go = Instantiate(playerPrefab, pos, Quaternion.identity);
-            go.name = $"PartyPlayer_P{slot + 1}_Net_{clientId}";
+            go.name = isBot
+                ? $"PartyPlayer_P{slot + 1}_Bot_{clientId}"
+                : $"PartyPlayer_P{slot + 1}_Net_{clientId}";
 
             var pp = go.GetComponent<PartyGame.PartyPlayer>();
             if (pp != null)
@@ -111,6 +113,7 @@ namespace PartyGame.Net
                 var field = typeof(PartyGame.PartyPlayer).GetField("playerIndex",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 if (field != null) field.SetValue(pp, slot);
+                if (isBot) pp.SetIsBot(true);
             }
 
             var netObj = go.GetComponent<NetworkObject>();
@@ -120,7 +123,20 @@ namespace PartyGame.Net
                 Destroy(go);
                 return;
             }
-            netObj.SpawnAsPlayerObject(clientId, true);
+
+            if (isBot)
+            {
+                // Server owns the bot object. Do NOT SpawnAsPlayerObject — Netcode only allows one
+                // player object per real clientId, and synthetic bot ids aren't in NM.ConnectedClients.
+                netObj.Spawn(true);
+                // Attach the AI brain after spawn so it can safely touch NetworkVariables.
+                var ai = go.GetComponent<PartyGame.PartyPlayerAI>();
+                if (ai == null) ai = go.AddComponent<PartyGame.PartyPlayerAI>();
+            }
+            else
+            {
+                netObj.SpawnAsPlayerObject(clientId, true);
+            }
 
             // Equip default loadout right after spawn so item slots are set before the match starts.
             // Doing it here (rather than in PartyGameManager's state transition) avoids racing
@@ -128,7 +144,7 @@ namespace PartyGame.Net
             var mgr = PartyGame.PartyGameManager.Instance;
             if (mgr != null && pp != null) mgr.EquipDefaultLoadoutFor(pp);
 
-            Debug.Log($"[PartyPlayerSpawner] Spawned slot={slot} for client={clientId} at {pos}");
+            Debug.Log($"[PartyPlayerSpawner] Spawned {(isBot ? "BOT" : "PLAYER")} slot={slot} for id={clientId} at {pos}");
         }
     }
 }

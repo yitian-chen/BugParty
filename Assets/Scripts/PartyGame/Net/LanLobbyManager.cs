@@ -66,6 +66,12 @@ namespace PartyGame.Net
 
         public override void OnNetworkSpawn()
         {
+            // NGO has finished matching this in-scene NetworkObject on both host and client by now,
+            // so it is finally safe to move the whole NetworkManager GameObject to DontDestroyOnLoad
+            // (so it survives the LanLobbyScene → GameScene load). See NetworkedPartyBootstrap for
+            // why we don't call DontDestroyOnLoad in Awake.
+            DontDestroyOnLoad(gameObject);
+
             if (IsServer)
             {
                 nm.OnClientConnectedCallback += HandleClientConnected;

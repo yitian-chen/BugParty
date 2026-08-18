@@ -22,8 +22,12 @@ namespace PartyGame.Net
 
         private void Awake()
         {
-            // Survive across LobbyScene -> GameScene load.
-            DontDestroyOnLoad(gameObject);
+            // NOTE: Do NOT DontDestroyOnLoad the NetworkManager GameObject here. Moving it out of
+            // LanLobbyScene BEFORE StartHost/StartClient runs breaks NGO's in-scene NetworkObject
+            // matching for LanLobbyManager (which sits on this same GO). Symptom: client connects
+            // successfully but its local LanLobbyManager.Entries never syncs — lobby UI shows
+            // "真人 0". DDoL is deferred to LanLobbyManager.OnNetworkSpawn, which runs after both
+            // host and client have completed in-scene NO matching on their side.
         }
 
         private void Start()

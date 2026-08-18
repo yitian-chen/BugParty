@@ -48,6 +48,9 @@ namespace PartyGame
         public event EventHandler OnFrenzyStarted;
 
         public PartyGameConfig Config => config;
+        public ItemDataSO DefaultFishingItem => defaultFishingItem;
+        public ItemDataSO DefaultDisruptionItem => defaultDisruptionItem;
+        public ItemDataSO SeedItemForDemo => seedItemForDemo;
         public State CurrentState => (State)netState.Value;
         public float CountdownTimer => netCountdownTimer.Value;
         public float MatchTimeRemaining => Mathf.Max(0f, netMatchTimer.Value);
@@ -197,14 +200,18 @@ namespace PartyGame
         private void EquipDefaultLoadout()
         {
             PartyPlayer[] all = FindObjectsOfType<PartyPlayer>();
-            foreach (PartyPlayer p in all)
+            foreach (PartyPlayer p in all) EquipDefaultLoadoutFor(p);
+        }
+
+        /// <summary>Equip a single player with the default loadout. Safe to call at spawn time (server only).</summary>
+        public void EquipDefaultLoadoutFor(PartyPlayer p)
+        {
+            if (!CanAuthor || p == null) return;
+            if (defaultFishingItem != null) p.TryEquipItem(defaultFishingItem);
+            if (defaultDisruptionItem != null) p.TryEquipItem(defaultDisruptionItem);
+            if (seedItemForDemo != null)
             {
-                if (defaultFishingItem != null) p.TryEquipItem(defaultFishingItem);
-                if (defaultDisruptionItem != null) p.TryEquipItem(defaultDisruptionItem);
-                if (seedItemForDemo != null)
-                {
-                    if (!p.TryEquipItem(seedItemForDemo)) p.ForceReplaceLastSlot(seedItemForDemo);
-                }
+                if (!p.TryEquipItem(seedItemForDemo)) p.ForceReplaceLastSlot(seedItemForDemo);
             }
         }
     }

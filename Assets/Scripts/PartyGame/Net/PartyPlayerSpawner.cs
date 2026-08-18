@@ -121,6 +121,13 @@ namespace PartyGame.Net
                 return;
             }
             netObj.SpawnAsPlayerObject(clientId, true);
+
+            // Equip default loadout right after spawn so item slots are set before the match starts.
+            // Doing it here (rather than in PartyGameManager's state transition) avoids racing
+            // FindObjectsOfType against player spawn timing.
+            var mgr = PartyGame.PartyGameManager.Instance;
+            if (mgr != null && pp != null) mgr.EquipDefaultLoadoutFor(pp);
+
             Debug.Log($"[PartyPlayerSpawner] Spawned slot={slot} for client={clientId} at {pos}");
         }
     }

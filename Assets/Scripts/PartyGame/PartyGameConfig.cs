@@ -75,6 +75,22 @@ namespace PartyGame
         [Tooltip("Prefab to instantiate above the player's head while reloading. Reuse the fishing progress bar prefab for visual consistency; the runtime WaterReloadBar drives the FillPivot child.")]
         public GameObject reloadBarPrefab;
 
+        [Header("Hook (grappling hook item)")]
+        [Tooltip("Maximum hook travel range in meters. If it reaches the end without hitting anything the shot fails.")]
+        public float hookRange = 40f;
+        [Tooltip("Casting speed of the hook line visual (m/s). Bigger = the rope grows out faster; server resolves the hit instantly, this only tunes the visual.")]
+        public float hookCastSpeed = 18f;
+        [Tooltip("Minimum seconds between consecutive hook shots.")]
+        public float hookCooldown = 4f;
+        [Tooltip("Total number of hook shots granted per pickup — item is consumed when durability hits 0.")]
+        public int hookDurability = 5;
+        [Tooltip("How far in front of the caster (meters) a hooked player is placed after the pull.")]
+        public float hookPullTargetDistance = 2.0f;
+        [Tooltip("Cylinder cast radius for forgiving hooked-target detection.")]
+        public float hookHitRadius = 1.2f;
+        [Tooltip("Seconds a hooked victim smoothly lerps toward the drop position (owner-side).")]
+        public float hookPullDuration = 0.7f;
+
         [Header("Item Registry (for network kind -> SO lookup)")]
         [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]
         public ItemDataSO[] allItems;

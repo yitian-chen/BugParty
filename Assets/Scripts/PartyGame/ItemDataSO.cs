@@ -8,12 +8,15 @@ namespace PartyGame
         LargeNet,
         Knife,
         Mine,
+        Hook,
+        WaterGun,
     }
 
     public enum ItemCategory
     {
         Fishing,
         Disruption,
+        Weapon,
     }
 
     [CreateAssetMenu(fileName = "ItemData", menuName = "PartyGame/ItemData")]

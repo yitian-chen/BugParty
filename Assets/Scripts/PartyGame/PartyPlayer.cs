@@ -56,6 +56,13 @@ namespace PartyGame
         private NetworkVariable<bool>  netWaterReloading  = new NetworkVariable<bool>(false);
         private NetworkVariable<float> netWaterReloadT    = new NetworkVariable<float>(0f); // seconds remaining
         private NetworkVariable<float> netSlowTimer       = new NetworkVariable<float>(0f); // seconds remaining
+        // Hook (grappling hook item): server-authoritative cooldown timer; the shot itself is
+        // triggered per-fire, but consecutive fires are blocked while this timer > 0.
+        private NetworkVariable<float> netHookCooldownT   = new NetworkVariable<float>(0f);
+        // Currently-equipped weapon slot index (0 or 1). Digit 1/2 selects a weapon in that slot;
+        // LMB routes to the weapon kind in the equipped slot. Server-authoritative but local input
+        // requests a change via ServerRpc. -1 = no weapon equipped.
+        private NetworkVariable<int> netEquippedSlot = new NetworkVariable<int>(-1);
 
         // Local mirrors of item slots (materialized ItemInstance from SlotSync + config lookup).
         private ItemInstance[] itemSlots;
@@ -72,6 +79,7 @@ namespace PartyGame
         public event EventHandler OnStunned;
         public event EventHandler OnWaterGunChanged;   // fired when ammo / reload state changes
         public event EventHandler OnWaterGunFired;     // fired on client when a shot lands (for VFX)
+        public event EventHandler OnEquippedWeaponChanged; // fired when the equipped slot changes
 
         public int PlayerIndex => playerIndex;
         public int CarriedCommon => netCarriedCommon.Value;
@@ -100,6 +108,48 @@ namespace PartyGame
                 if (total <= 0f) return 0f;
                 // Clamp01 handles both the initial (t=total, n=0) and the grace-window overshoot (t<0, n>1).
                 return Mathf.Clamp01(1f - netWaterReloadT.Value / total);
+            }
+        }
+        // Hook state (read by HUD / crosshair prompts).
+        public float HookCooldownRemaining => netHookCooldownT.Value;
+        public bool HookOnCooldown => netHookCooldownT.Value > 0f;
+        public bool HasHookEquipped
+        {
+            get
+            {
+                if (itemSlots == null) return false;
+                foreach (var s in itemSlots)
+                    if (s != null && !s.IsEmpty && s.data != null && s.data.kind == ItemKind.Hook) return true;
+                return false;
+            }
+        }
+        // ---- Weapon selection ----
+        public int EquippedSlot => netEquippedSlot.Value;
+        public ItemDataSO EquippedWeaponData
+        {
+            get
+            {
+                int i = netEquippedSlot.Value;
+                if (itemSlots == null || i < 0 || i >= itemSlots.Length) return null;
+                var s = itemSlots[i];
+                if (s == null || s.IsEmpty || s.data == null) return null;
+                return s.data.category == ItemCategory.Weapon ? s.data : null;
+            }
+        }
+        public bool IsEquippedKind(ItemKind kind)
+        {
+            var d = EquippedWeaponData;
+            return d != null && d.kind == kind;
+        }
+        /// <summary>The currently-equipped item instance (any category), or null.</summary>
+        public ItemInstance EquippedItem
+        {
+            get
+            {
+                int i = netEquippedSlot.Value;
+                if (itemSlots == null || i < 0 || i >= itemSlots.Length) return null;
+                var s = itemSlots[i];
+                return (s == null || s.IsEmpty) ? null : s;
             }
         }
 
@@ -173,8 +223,8 @@ namespace PartyGame
         {
             netCarriedCommon.OnValueChanged += (a, b) => OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
             netCarriedGolden.OnValueChanged += (a, b) => OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
-            netSlot0.OnValueChanged += (a, b) => { RebuildLocalSlots(); OnItemsChanged?.Invoke(this, EventArgs.Empty); };
-            netSlot1.OnValueChanged += (a, b) => { RebuildLocalSlots(); OnItemsChanged?.Invoke(this, EventArgs.Empty); };
+            netSlot0.OnValueChanged += (a, b) => { RebuildLocalSlots(); OnItemsChanged?.Invoke(this, EventArgs.Empty); if (CanAuthor) HandleSlotChanged_Server(0); };
+            netSlot1.OnValueChanged += (a, b) => { RebuildLocalSlots(); OnItemsChanged?.Invoke(this, EventArgs.Empty); if (CanAuthor) HandleSlotChanged_Server(1); };
             netStunTimer.OnValueChanged += (a, b) => { if (b > 0 && a <= 0) OnStunned?.Invoke(this, EventArgs.Empty); };
             netIsFishing.OnValueChanged += (a, b) =>
             {
@@ -183,7 +233,11 @@ namespace PartyGame
             };
             netWaterAmmo.OnValueChanged      += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
             netWaterReloading.OnValueChanged += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
+            netEquippedSlot.OnValueChanged   += (a, b) => OnEquippedWeaponChanged?.Invoke(this, EventArgs.Empty);
             RebuildLocalSlots();
+            // If we have a weapon in a slot and none equipped yet, auto-equip the first weapon slot
+            // on the server. This is what lets the demo loadout show slot 0 (water gun) as ready.
+            if (CanAuthor) AutoEquipFirstWeaponIfNone_Server();
 
             // Auto-attach owner-only helpers so the prefab doesn't need to carry these components.
             if (IsLocalController && !isBot)
@@ -289,6 +343,10 @@ namespace PartyGame
                         netWaterReloadT.Value = 0f;
                     }
                 }
+                if (netHookCooldownT.Value > 0f)
+                {
+                    netHookCooldownT.Value = Mathf.Max(0f, netHookCooldownT.Value - Time.deltaTime);
+                }
                 TickFishingServer();
             }
 
@@ -300,9 +358,25 @@ namespace PartyGame
             if (!useGameInput || !IsLocalController) return;
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb == null) return;
-            if (kb.digit1Key.wasPressedThisFrame) RequestUseItem(0);
-            if (kb.digit2Key.wasPressedThisFrame) RequestUseItem(1);
+            // Digit 1/2: if the target slot is a Weapon, equip it; otherwise fall through to the
+            // legacy "use item now" path (mines/knife etc.) so those still work if we ever put one back.
+            if (kb.digit1Key.wasPressedThisFrame) HandleDigit(0);
+            if (kb.digit2Key.wasPressedThisFrame) HandleDigit(1);
             PollWaterGunMouse();
+        }
+
+        private void HandleDigit(int slotIndex)
+        {
+            if (itemSlots != null && slotIndex >= 0 && slotIndex < itemSlots.Length)
+            {
+                var s = itemSlots[slotIndex];
+                if (s != null && !s.IsEmpty && s.data != null && s.data.category == ItemCategory.Weapon)
+                {
+                    RequestEquipSlot(slotIndex);
+                    return;
+                }
+            }
+            RequestUseItem(slotIndex);
         }
 
         private float localFireCooldown;
@@ -316,35 +390,71 @@ namespace PartyGame
 
             if (mouse.rightButton.wasPressedThisFrame)
             {
-                // If we're already reloading, this second press cancels the reload.
-                if (netWaterReloading.Value)
+                // RMB is water-gun-only: reload / cancel reload. Ignore if the water gun isn't equipped.
+                if (IsEquippedKind(ItemKind.WaterGun))
                 {
-                    if (IsSoloMode) DoCancelReload_Server();
-                    else if (IsOwner) CancelReloadServerRpc();
-                }
-                else
-                {
-                    if (IsSoloMode) DoStartReload_Server();
-                    else if (IsOwner) StartReloadServerRpc();
+                    if (netWaterReloading.Value)
+                    {
+                        if (IsSoloMode) DoCancelReload_Server();
+                        else if (IsOwner) CancelReloadServerRpc();
+                    }
+                    else
+                    {
+                        if (IsSoloMode) DoStartReload_Server();
+                        else if (IsOwner) StartReloadServerRpc();
+                    }
                 }
             }
 
             if (mouse.leftButton.wasPressedThisFrame && localFireCooldown <= 0f)
             {
-                // Owner-local out-of-ammo hint. Server is the source of truth for ammo, but the
-                // client mirror is fine for showing an immediate "empty click" prompt.
-                if (netWaterAmmo.Value <= 0 && !netWaterReloading.Value)
+                var weapon = EquippedWeaponData;
+                if (weapon == null)
                 {
+                    // No weapon equipped — remind the local player.
                     var ch = GetComponent<PartyPlayerCrosshair>();
-                    if (ch != null) ch.ShowHeadBanner("弹药耗尽 请装填 (右键)");
+                    if (ch != null) ch.ShowHeadBanner("请按 1 或 2 装备武器");
                     return;
                 }
-                Vector3 target;
-                if (TryReadAimWorldPosition(out target))
+
+                if (weapon.kind == ItemKind.Hook)
                 {
-                    localFireCooldown = config != null ? config.waterGunFireCooldown : 0.25f;
-                    if (IsSoloMode) DoFireWater_Server(target);
-                    else if (IsOwner) FireWaterServerRpc(target);
+                    if (HookOnCooldown)
+                    {
+                        var ch = GetComponent<PartyPlayerCrosshair>();
+                        if (ch != null) ch.ShowHeadBanner($"钩爪冷却中 {netHookCooldownT.Value:0.0}s");
+                        return;
+                    }
+                    Vector3 hookTarget;
+                    if (TryReadAimWorldPosition(out hookTarget))
+                    {
+                        // Small owner-side cooldown so we don't spam the RPC; server has its own
+                        // (netHookCooldownT) which is the source of truth.
+                        localFireCooldown = 0.15f;
+                        if (IsSoloMode) DoFireHook_Server(hookTarget);
+                        else if (IsOwner) FireHookServerRpc(hookTarget);
+                    }
+                    return;
+                }
+
+                if (weapon.kind == ItemKind.WaterGun)
+                {
+                    // Owner-local out-of-ammo hint. Server is the source of truth for ammo, but the
+                    // client mirror is fine for showing an immediate "empty click" prompt.
+                    if (netWaterAmmo.Value <= 0 && !netWaterReloading.Value)
+                    {
+                        var ch = GetComponent<PartyPlayerCrosshair>();
+                        if (ch != null) ch.ShowHeadBanner("弹药耗尽 请装填 (右键)");
+                        return;
+                    }
+                    Vector3 target;
+                    if (TryReadAimWorldPosition(out target))
+                    {
+                        localFireCooldown = config != null ? config.waterGunFireCooldown : 0.25f;
+                        if (IsSoloMode) DoFireWater_Server(target);
+                        else if (IsOwner) FireWaterServerRpc(target);
+                    }
+                    return;
                 }
             }
         }
@@ -399,6 +509,15 @@ namespace PartyGame
             if (IsOwner) UseItemServerRpc(slotIndex);
         }
 
+        /// <summary>Owner-side entry: try to equip the weapon in the given slot (1/2 hotkey).</summary>
+        private void RequestEquipSlot(int slotIndex)
+        {
+            if (IsStunned) return;
+            if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying()) return;
+            if (IsSoloMode) { DoEquipSlot_Server(slotIndex); return; }
+            if (IsOwner) EquipSlotServerRpc(slotIndex);
+        }
+
         [ServerRpc] private void InteractServerRpc() => DoInteract_Server();
         [ServerRpc] private void DepositOneServerRpc() => DoDepositOne_Server();
         [ServerRpc] private void UseItemServerRpc(int slotIndex) => DoUseItem_Server(slotIndex);
@@ -406,6 +525,8 @@ namespace PartyGame
         [ServerRpc] private void FireWaterServerRpc(Vector3 targetWorld) => DoFireWater_Server(targetWorld);
         [ServerRpc] private void StartReloadServerRpc() => DoStartReload_Server();
         [ServerRpc] private void CancelReloadServerRpc() => DoCancelReload_Server();
+        [ServerRpc] private void FireHookServerRpc(Vector3 targetWorld) => DoFireHook_Server(targetWorld);
+        [ServerRpc] private void EquipSlotServerRpc(int slotIndex) => DoEquipSlot_Server(slotIndex);
 
         // ---- Server-side handlers ----
 
@@ -483,6 +604,61 @@ namespace PartyGame
             ConsumeSlotDurability_Server(slotIndex);
         }
 
+        // ---- Weapon equip (server) ----
+
+        private void DoEquipSlot_Server(int slotIndex)
+        {
+            if (!CanAuthor) return;
+            if (itemSlots == null || slotIndex < 0 || slotIndex >= itemSlots.Length) return;
+            var s = itemSlots[slotIndex];
+            if (s == null || s.IsEmpty || s.data == null) return;
+            if (s.data.category != ItemCategory.Weapon) return;
+            if (netEquippedSlot.Value == slotIndex) return;
+            netEquippedSlot.Value = slotIndex;
+        }
+
+        private void AutoEquipFirstWeaponIfNone_Server()
+        {
+            if (!CanAuthor) return;
+            if (itemSlots == null) return;
+            int cur = netEquippedSlot.Value;
+            if (cur >= 0 && cur < itemSlots.Length)
+            {
+                var s = itemSlots[cur];
+                if (s != null && !s.IsEmpty && s.data != null && s.data.category == ItemCategory.Weapon) return;
+            }
+            for (int i = 0; i < itemSlots.Length; i++)
+            {
+                var s = itemSlots[i];
+                if (s != null && !s.IsEmpty && s.data != null && s.data.category == ItemCategory.Weapon)
+                {
+                    netEquippedSlot.Value = i;
+                    return;
+                }
+            }
+            netEquippedSlot.Value = -1;
+        }
+
+        /// <summary>Called on the server when a slot's contents change. Keeps `netEquippedSlot` valid.</summary>
+        private void HandleSlotChanged_Server(int slotIndex)
+        {
+            if (!CanAuthor) return;
+            // If we just gained our first weapon, auto-equip it. If the equipped slot just went empty
+            // (e.g. hook durability drained), fall back to any other weapon slot.
+            int cur = netEquippedSlot.Value;
+            if (cur == slotIndex)
+            {
+                var s = itemSlots != null && slotIndex < itemSlots.Length ? itemSlots[slotIndex] : null;
+                bool stillWeapon = s != null && !s.IsEmpty && s.data != null && s.data.category == ItemCategory.Weapon;
+                if (!stillWeapon)
+                {
+                    AutoEquipFirstWeaponIfNone_Server();
+                    return;
+                }
+            }
+            if (cur < 0) AutoEquipFirstWeaponIfNone_Server();
+        }
+
         // ---- Water gun (server-authoritative) ----
 
         private void DoFireWater_Server(Vector3 targetWorld)
@@ -491,6 +667,7 @@ namespace PartyGame
             if (IsStunned) return;
             if (netWaterReloading.Value) return;
             if (netWaterAmmo.Value <= 0) return;
+            if (!IsEquippedKind(ItemKind.WaterGun)) return;
 
             float range = config != null ? config.waterGunRange : 8f;
             float radius = config != null ? config.waterGunHitRadius : 0.7f;
@@ -615,6 +792,196 @@ namespace PartyGame
             s.durability--;
             WriteSlot(slotIndex, s.durability <= 0 ? new SlotSync{kind=-1,durability=0} : s);
         }
+
+        // ---- Hook / grappling item (server-authoritative) ----
+
+        private void DoFireHook_Server(Vector3 targetWorld)
+        {
+            if (!CanAuthor) return;
+            if (IsStunned) return;
+            if (netHookCooldownT.Value > 0f) return;
+            if (!IsEquippedKind(ItemKind.Hook)) return;
+
+            int hookSlot = FindHookSlotIndex();
+            if (hookSlot < 0) return;
+
+            float range = config != null ? config.hookRange : 14f;
+            float radius = config != null ? config.hookHitRadius : 0.7f;
+
+            Vector3 origin = transform.position + Vector3.up * 0.9f;
+            Vector3 aim = targetWorld; aim.y = origin.y;
+            Vector3 dir = aim - origin; dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-4f) return;
+            dir.Normalize();
+
+            // Scan players and islands separately; pick whichever is closest along the ray.
+            PartyPlayer playerHit; float playerDist;
+            Island islandHit;      float islandDist;
+            FindHookPlayerHit(origin, dir, range, radius, out playerHit, out playerDist);
+            FindHookIslandHit(origin, dir, range, radius, out islandHit, out islandDist);
+
+            bool hitAnything = playerHit != null || islandHit != null;
+            float endDist;
+            Vector3 dropPos = default;
+            if (playerHit != null && (islandHit == null || playerDist <= islandDist))
+            {
+                endDist = playerDist;
+                float dropDist = config != null ? config.hookPullTargetDistance : 2f;
+                dropPos = origin + dir * dropDist;
+                dropPos.y = playerHit.transform.position.y;
+                islandHit = null;
+            }
+            else if (islandHit != null)
+            {
+                endDist = islandDist;
+                playerHit = null;
+            }
+            else
+            {
+                endDist = range;
+            }
+
+            Vector3 endPoint = origin + dir * endDist;
+            // Fire the visual immediately so caster + peers see the rope shoot out.
+            BroadcastHookShotClientRpc(origin, endPoint, hitAnything);
+
+            // Consume cooldown + durability up-front so the shot can't be double-fired while
+            // the rope is still traveling. Actual pull / steal is applied when the rope arrives.
+            netHookCooldownT.Value = config != null ? config.hookCooldown : 4f;
+            ConsumeSlotDurability_Server(hookSlot);
+
+            if (!hitAnything) return;
+
+            float castSpeed = config != null && config.hookCastSpeed > 0.01f ? config.hookCastSpeed : 18f;
+            float travelTime = endDist / castSpeed;
+            StartCoroutine(ApplyHookHitAfterDelay_Server(travelTime, playerHit, islandHit, dropPos));
+        }
+
+        private System.Collections.IEnumerator ApplyHookHitAfterDelay_Server(float delay, PartyPlayer victim, Island island, Vector3 dropPos)
+        {
+            if (delay > 0f) yield return new WaitForSeconds(delay);
+            if (!CanAuthor) yield break;
+            if (victim != null)
+            {
+                ApplyHookPullPlayer_Server(victim, dropPos);
+            }
+            else if (island != null)
+            {
+                var stolen = island.StealOne(this);
+                if (stolen != null) BroadcastStolenClientRpc((int)stolen.Value);
+            }
+        }
+
+        private int FindHookSlotIndex()
+        {
+            if (itemSlots == null) return -1;
+            for (int i = 0; i < itemSlots.Length; i++)
+            {
+                var s = itemSlots[i];
+                if (s != null && !s.IsEmpty && s.data != null && s.data.kind == ItemKind.Hook) return i;
+            }
+            return -1;
+        }
+
+        private void FindHookPlayerHit(Vector3 origin, Vector3 dir, float range, float radius, out PartyPlayer victim, out float distance)
+        {
+            victim = null; distance = float.PositiveInfinity;
+            var all = FindObjectsOfType<PartyPlayer>();
+            foreach (var p in all)
+            {
+                if (p == null || p == this) continue;
+                Vector3 to = p.transform.position - origin; to.y = 0f;
+                float projected = Vector3.Dot(to, dir);
+                if (projected < 0f || projected > range) continue;
+                Vector3 closest = origin + dir * projected;
+                float lateral = Vector2.Distance(new Vector2(closest.x, closest.z), new Vector2(p.transform.position.x, p.transform.position.z));
+                if (lateral > radius + 0.5f) continue;
+                if (projected < distance) { distance = projected; victim = p; }
+            }
+        }
+
+        private void FindHookIslandHit(Vector3 origin, Vector3 dir, float range, float radius, out Island island, out float distance)
+        {
+            island = null; distance = float.PositiveInfinity;
+            var mgr = PartyGameManager.Instance;
+            if (mgr == null) return;
+            foreach (var isl in mgr.Islands)
+            {
+                if (isl == null) continue;
+                if (isl.CommonFishCount + isl.GoldenFishCount <= 0) continue;
+                Vector3 to = isl.transform.position - origin; to.y = 0f;
+                float projected = Vector3.Dot(to, dir);
+                if (projected < 0f || projected > range) continue;
+                Vector3 closest = origin + dir * projected;
+                // Islands are much larger than players — accept anything within ~2m of the ray plus
+                // the trigger radius, so aiming near the platform is enough.
+                float lateral = Vector2.Distance(new Vector2(closest.x, closest.z), new Vector2(isl.transform.position.x, isl.transform.position.z));
+                if (lateral > radius + 2.5f) continue;
+                if (projected < distance) { distance = projected; island = isl; }
+            }
+        }
+
+        private void ApplyHookPullPlayer_Server(PartyPlayer victim, Vector3 dropPos)
+        {
+            if (victim == null) return;
+            // Interrupt whatever they were doing (fishing / stealing) — being yanked cancels the action.
+            if (victim.activeFishing != null && !victim.activeFishing.IsFinished)
+                victim.activeFishing.Interrupt();
+
+            if (IsSoloMode)
+            {
+                float duration = config != null ? config.hookPullDuration : 0.7f;
+                if (victim.activePullCoroutine != null) victim.StopCoroutine(victim.activePullCoroutine);
+                victim.activePullCoroutine = victim.StartCoroutine(victim.PullLerpCoroutine(dropPos, duration));
+                return;
+            }
+
+            // ClientNetworkTransform is client-authoritative, so the owner must move themselves. Route
+            // via targeted ClientRpc to the victim's owner client (same pattern as water-gun knockback).
+            var target = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { victim.OwnerClientId } }
+            };
+            victim.PullToPositionClientRpc(dropPos, target);
+        }
+
+        [ClientRpc]
+        internal void PullToPositionClientRpc(Vector3 pos, ClientRpcParams _ = default)
+        {
+            // Only the victim's owner receives this (scoped above). Owner writes its transform;
+            // ClientNetworkTransform replicates the new pose to server + peers.
+            if (!IsOwner) return;
+            float duration = config != null ? config.hookPullDuration : 0.7f;
+            if (activePullCoroutine != null) StopCoroutine(activePullCoroutine);
+            activePullCoroutine = StartCoroutine(PullLerpCoroutine(pos, duration));
+        }
+
+        private Coroutine activePullCoroutine;
+
+        private System.Collections.IEnumerator PullLerpCoroutine(Vector3 target, float duration)
+        {
+            Vector3 start = transform.position;
+            target.y = start.y;
+            float t = 0f;
+            while (t < duration)
+            {
+                t += Time.deltaTime;
+                float k = Mathf.Clamp01(t / duration);
+                // Ease-out so the yank feels sharp at first then settles.
+                float eased = 1f - (1f - k) * (1f - k);
+                transform.position = Vector3.LerpUnclamped(start, target, eased);
+                yield return null;
+            }
+            transform.position = target;
+            activePullCoroutine = null;
+        }
+
+        [ClientRpc]
+        private void BroadcastHookShotClientRpc(Vector3 from, Vector3 to, bool hit)
+        {
+            HookShotTracer.Spawn(from, to, hit);
+        }
+
 
         private PartyPlayer FindNearestFishingVictim(float range)
         {

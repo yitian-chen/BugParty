@@ -96,9 +96,12 @@ namespace PartyGame
             var cam = GameWorldCamera.Resolve();
             if (cam == null) return;
             Vector3 headWorld = transform.position + headWorldOffset;
-            Vector3 sp = cam.WorldToScreenPoint(headWorld);
-            if (sp.z <= 0f) { bannerRT.gameObject.SetActive(false); return; }
-            bannerRT.position = new Vector3(sp.x, sp.y, 0f);
+            // WorldToScreenPoint returns coordinates in the camera's target-texture space, which for the
+            // pixel camera is 640x360 rather than the real screen. Convert via viewport (0..1) so the
+            // banner lands correctly on the ScreenSpaceOverlay canvas at any real screen size.
+            Vector3 vp = cam.WorldToViewportPoint(headWorld);
+            if (vp.z <= 0f) { bannerRT.gameObject.SetActive(false); return; }
+            bannerRT.position = new Vector3(vp.x * Screen.width, vp.y * Screen.height, 0f);
         }
 
         private void SetActive(bool v)

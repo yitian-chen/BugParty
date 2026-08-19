@@ -5,12 +5,13 @@ using UnityEngine.UI;
 namespace PartyGame.UI
 {
     /// <summary>
-    /// HUD panel showing the local player's water gun ammo (repurposed from the old raft-fish label
-    /// slot in the bottom-left corner). Text: "X / N". Fill: X/N normalized.
-    /// When the gun is reloading, the label switches to "装填中…" and the fill drives from the reload
-    /// progress (empty → full).
-    /// The world-space head bar (WaterReloadBar) covers the "everyone can see it" case; this only
-    /// serves the local player and stays where the original raft-fish HUD used to live.
+    /// HUD panel in the bottom-left showing the currently-equipped item's remaining uses.
+    /// - WaterGun: "水枪 {ammo}/{clip}" (or "装填中… {ammo}/{clip}" during a reload)
+    /// - Hook:     "钩爪 {durability}/{maxDurability}"
+    /// - Other:    "{displayName} {durability}/{startingDurability}"
+    /// - Nothing:  "未装备"
+    ///
+    /// The fill Image mirrors the ratio.
     /// </summary>
     public class PartyHudRaftFish : MonoBehaviour
     {
@@ -27,8 +28,10 @@ namespace PartyGame.UI
         {
             if (localPlayer != null)
             {
-                localPlayer.OnCarriedFishChanged -= Refresh; // legacy — kept for defensive unsubscribe
+                localPlayer.OnCarriedFishChanged -= Refresh;
                 localPlayer.OnWaterGunChanged -= Refresh;
+                localPlayer.OnItemsChanged -= Refresh;
+                localPlayer.OnEquippedWeaponChanged -= Refresh;
             }
         }
 
@@ -38,6 +41,8 @@ namespace PartyGame.UI
             {
                 localPlayer.OnCarriedFishChanged -= Refresh;
                 localPlayer.OnWaterGunChanged -= Refresh;
+                localPlayer.OnItemsChanged -= Refresh;
+                localPlayer.OnEquippedWeaponChanged -= Refresh;
             }
             localPlayer = player;
             Subscribe();
@@ -46,7 +51,12 @@ namespace PartyGame.UI
 
         private void Subscribe()
         {
-            if (localPlayer != null) localPlayer.OnWaterGunChanged += Refresh;
+            if (localPlayer != null)
+            {
+                localPlayer.OnWaterGunChanged += Refresh;
+                localPlayer.OnItemsChanged += Refresh;
+                localPlayer.OnEquippedWeaponChanged += Refresh;
+            }
             Refresh(null, null);
         }
 
@@ -54,24 +64,46 @@ namespace PartyGame.UI
         {
             // Reload progress must animate every frame; NetworkVariable OnValueChanged only fires on
             // discrete state transitions (start/end), not on the continuous countdown.
-            if (localPlayer != null && localPlayer.WaterReloading) Refresh(null, null);
+            if (localPlayer != null && localPlayer.WaterReloading && localPlayer.IsEquippedKind(ItemKind.WaterGun))
+                Refresh(null, null);
         }
 
         private void Refresh(object sender, System.EventArgs e)
         {
             if (localPlayer == null || label == null) return;
-            int ammo = localPlayer.WaterAmmo;
-            int cap = localPlayer.WaterClipSize;
-            if (localPlayer.WaterReloading)
+
+            ItemInstance equipped = localPlayer.EquippedItem;
+            if (equipped == null || equipped.data == null)
             {
-                label.text = $"装填中… {ammo} / {cap}";
-                if (fill != null) fill.fillAmount = localPlayer.WaterReloadNormalized;
+                label.text = "未装备";
+                if (fill != null) fill.fillAmount = 0f;
+                return;
             }
-            else
+
+            ItemDataSO data = equipped.data;
+            if (data.kind == ItemKind.WaterGun)
             {
-                label.text = $"水枪 {ammo} / {cap}";
-                if (fill != null) fill.fillAmount = cap > 0 ? (float)ammo / cap : 0f;
+                int ammo = localPlayer.WaterAmmo;
+                int cap = localPlayer.WaterClipSize;
+                if (localPlayer.WaterReloading)
+                {
+                    label.text = $"装填中… {ammo} / {cap}";
+                    if (fill != null) fill.fillAmount = localPlayer.WaterReloadNormalized;
+                }
+                else
+                {
+                    label.text = $"水枪 {ammo} / {cap}";
+                    if (fill != null) fill.fillAmount = cap > 0 ? (float)ammo / cap : 0f;
+                }
+                return;
             }
+
+            // Generic path — durability out of max.
+            int cur = equipped.durability;
+            int max = data.startingDurability > 0 ? data.startingDurability : cur;
+            string name = string.IsNullOrEmpty(data.displayName) ? data.kind.ToString() : data.displayName;
+            label.text = $"{name} {cur} / {max}";
+            if (fill != null) fill.fillAmount = max > 0 ? (float)cur / max : 0f;
         }
     }
 }

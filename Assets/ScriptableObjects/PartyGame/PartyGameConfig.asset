@@ -48,10 +48,20 @@ MonoBehaviour:
   waterGunSlowMultiplier: 0.4
   reloadBarPrefab: {fileID: 5159898570543742593, guid: 39fb779c689df3742b3399297a6d63a6,
     type: 3}
+  hookRange: 40
+  hookCastSpeed: 18
+  hookCooldown: 4
+  hookDurability: 5
+  hookPullTargetDistance: 2
+  hookHitRadius: 1.2
+  hookPullDuration: 0.7
   allItems:
   - {fileID: 11400000, guid: b985c7d9ad782c545aaaea99e71fc9aa, type: 2}
   - {fileID: 11400000, guid: 5a810c2551bc5914d84a05950be0e840, type: 2}
   - {fileID: 11400000, guid: 6adb3219b7afebf4eb8324a73108609e, type: 2}
+  - {fileID: 11400000, guid: aa11bb22cc33dd44ee55ff6677889901, type: 2}
+  - {fileID: 11400000, guid: 1D3B1CeCB069D11B78210Be6f9cf072F, type: 2}
+  - {fileID: 11400000, guid: 1D3B1CeCB069D11B78210Be6f9cf072F, type: 2}
   commonFishScore: 1
   goldenFishScore: 2
   frenzyMoveMultiplier: 2

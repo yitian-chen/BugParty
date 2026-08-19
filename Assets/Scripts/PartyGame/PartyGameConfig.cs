@@ -64,6 +64,8 @@ namespace PartyGame
         public float waterGunSlowDuration = 1f;
         [Tooltip("Movement speed multiplier while slowed (0.4 = 60% slower).")]
         public float waterGunSlowMultiplier = 0.4f;
+        [Tooltip("Prefab to instantiate above the player's head while reloading. Reuse the fishing progress bar prefab for visual consistency; the runtime WaterReloadBar drives the FillPivot child.")]
+        public GameObject reloadBarPrefab;
 
         [Header("Item Registry (for network kind -> SO lookup)")]
         [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]

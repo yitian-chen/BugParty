@@ -60,9 +60,16 @@ namespace PartyGame
             var mat = new Material(Shader.Find("Sprites/Default"));
             mat.color = color;
             mat.mainTexture = BuildRingTexture(64, color);
+            // Draw on top of everything so an enemy raft never covers the crosshair.
+            // ZTest Always + a very high renderQueue puts it after all opaque + transparent geometry.
+            mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+            mat.SetInt("_ZWrite", 0);
+            mat.renderQueue = 5000;
             reticleRenderer.sharedMaterial = mat;
             reticleRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             reticleRenderer.receiveShadows = false;
+            // Force this renderer to render after everything else in URP too.
+            reticleRenderer.sortingOrder = 1000;
         }
 
         private static Texture2D BuildRingTexture(int size, Color c)

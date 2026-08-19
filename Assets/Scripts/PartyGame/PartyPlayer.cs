@@ -27,6 +27,9 @@ namespace PartyGame
         private Vector3 movementInput;
         private Vector3 aiMovementInput; // written by PartyPlayerAI on the server
         private Vector3 lastMoveDir = Vector3.forward;
+        // Cached kinematic state for inertia (owner-side only; transform is authoritative via CNT).
+        private float currentForwardSpeed;
+        private float currentTurnRate;
 
         // ---- Server-authoritative state (NetworkVariables) ----
         // Slot payload: kind + durability. Empty when durability<=0 (kind then meaningless).
@@ -230,6 +233,9 @@ namespace PartyGame
             if (IsStunned)
             {
                 movementInput = Vector3.zero;
+                // Kill inertia so we don't glide during / after stun.
+                currentForwardSpeed = 0f;
+                currentTurnRate = 0f;
             }
             else if (isBot)
             {
@@ -239,6 +245,8 @@ namespace PartyGame
             else if (locked || !IsLocalController)
             {
                 movementInput = Vector3.zero;
+                currentForwardSpeed = 0f;
+                currentTurnRate = 0f;
             }
             else if (netWaterReloading.Value)
             {
@@ -246,6 +254,8 @@ namespace PartyGame
                 // opening for opponents. Item hotkeys / mouse polling still run so the player can
                 // interrupt the reload with RMB or press digit keys for their other items.
                 movementInput = Vector3.zero;
+                currentForwardSpeed = 0f;
+                currentTurnRate = 0f;
                 PollItemHotkeys();
             }
             else
@@ -698,11 +708,17 @@ namespace PartyGame
         {
             // Real owners write to their own transform; bots are written on the server; clients passive.
             bool canDriveTransform = isBot ? CanAuthor : IsLocalController;
-            if (!canDriveTransform) return;
+            if (!canDriveTransform)
+            {
+                // Passive peers still need the cached state reset so on-ownership-change we don't drift.
+                currentForwardSpeed = 0f;
+                currentTurnRate = 0f;
+                return;
+            }
 
-            float forward = movementInput.z;
-            float turn = movementInput.x;
-            bool hasInput = Mathf.Abs(forward) > 0.01f || Mathf.Abs(turn) > 0.01f;
+            float forwardInput = movementInput.z;
+            float turnInput = movementInput.x;
+            bool hasInput = Mathf.Abs(forwardInput) > 0.01f || Mathf.Abs(turnInput) > 0.01f;
 
             if (hasInput && (activeFishing != null || IsFishingRemote))
             {
@@ -711,25 +727,41 @@ namespace PartyGame
             }
 
             float frenzyMul = PartyGameManager.Instance != null ? PartyGameManager.Instance.GetFrenzyMoveMultiplier() : 1f;
+            float slowMul = IsSlowed && config != null ? config.waterGunSlowMultiplier : 1f;
+            float maxSpeed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul * slowMul;
+            float accel = (config != null ? config.playerAccel : 12f) * frenzyMul;
+            float decel = (config != null ? config.playerDecel : 6f) * frenzyMul;
+            float maxTurnRate = 140f * frenzyMul;
+            float turnAccel = (config != null ? config.playerTurnAccel : 360f) * frenzyMul;
 
-            if (Mathf.Abs(turn) > 0.01f)
+            // Turn inertia: yaw rate accelerates toward the target rate, decelerates back to 0 when no input.
+            float targetTurnRate = turnInput * maxTurnRate;
+            float turnDelta = (Mathf.Abs(turnInput) > 0.01f ? turnAccel : turnAccel * 1.5f) * Time.deltaTime;
+            currentTurnRate = Mathf.MoveTowards(currentTurnRate, targetTurnRate, turnDelta);
+            if (Mathf.Abs(currentTurnRate) > 0.001f)
             {
-                float turnSpeed = 140f * frenzyMul;
-                float deltaYaw = turn * turnSpeed * Time.deltaTime;
-                // Rotate the ROOT transform so NetworkTransform replicates the yaw to other clients.
+                float deltaYaw = currentTurnRate * Time.deltaTime;
                 transform.Rotate(0f, deltaYaw, 0f, Space.World);
             }
 
-            if (Mathf.Abs(forward) > 0.01f)
+            // Forward inertia: current speed accelerates toward target while input is held, drifts back
+            // toward 0 (using `decel`) when input is released. Using decel < accel makes coasting obvious.
+            float targetSpeed = forwardInput * maxSpeed;
+            float speedDelta = (Mathf.Abs(forwardInput) > 0.01f ? accel : decel) * Time.deltaTime;
+            currentForwardSpeed = Mathf.MoveTowards(currentForwardSpeed, targetSpeed, speedDelta);
+            // Clamp so slow / frenzy multipliers changing mid-glide don't leave residual speed above cap.
+            currentForwardSpeed = Mathf.Clamp(currentForwardSpeed, -maxSpeed, maxSpeed);
+
+            if (Mathf.Abs(currentForwardSpeed) > 0.001f)
             {
                 Vector3 fwd = transform.forward;
                 fwd.y = 0f; fwd.Normalize();
-                lastMoveDir = fwd;
-                float slowMul = IsSlowed && config != null ? config.waterGunSlowMultiplier : 1f;
-                float speed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul * slowMul;
-                float moveDistance = forward * speed * Time.deltaTime;
-                Vector3 desired = fwd * Mathf.Sign(forward);
-                Vector3 delta = TryMove(desired, Mathf.Abs(moveDistance)) * Mathf.Sign(forward);
+                if (currentForwardSpeed > 0f) lastMoveDir = fwd;
+                float moveDistance = currentForwardSpeed * Time.deltaTime;
+                Vector3 desired = fwd * Mathf.Sign(currentForwardSpeed);
+                Vector3 delta = TryMove(desired, Mathf.Abs(moveDistance)) * Mathf.Sign(currentForwardSpeed);
+                // If TryMove reported zero (hit a wall), kill the residual speed so we don't grind.
+                if (delta.sqrMagnitude < 1e-6f) currentForwardSpeed = 0f;
                 transform.position += delta;
             }
         }

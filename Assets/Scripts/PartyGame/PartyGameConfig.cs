@@ -24,6 +24,12 @@ namespace PartyGame
 
         [Header("Player / Raft")]
         public float playerMoveSpeed = 6f;
+        [Tooltip("Forward acceleration (m/s^2) while pushing forward or reverse. Lower = more inertia when starting from a stop.")]
+        public float playerAccel = 12f;
+        [Tooltip("Deceleration (m/s^2) when input is released or reversed. Lower = more drift.")]
+        public float playerDecel = 6f;
+        [Tooltip("Yaw acceleration (deg/s^2). Lower = the raft resists sudden hard turns.")]
+        public float playerTurnAccel = 360f;
         public int raftFishCapacity = 2;
         public int itemSlotCount = 2;
 

@@ -492,11 +492,35 @@ namespace PartyGame
         {
             if (!CanAuthor) return;
             netSlowTimer.Value = Mathf.Max(netSlowTimer.Value, config != null ? config.waterGunSlowDuration : 1f);
-            // Kick the victim's transform backward — server writes to the transform; NetworkTransform
-            // replicates the position to every client. Skip while stunned (they're already prone).
+            // The victim's transform is driven by ClientNetworkTransform (client-authoritative), so
+            // writing to it server-side would be silently overwritten by the owner's next update.
+            // Route the knockback to the owning client via a targeted ClientRpc; the owner applies
+            // the impulse to its own transform, and NT replicates it back to everyone.
             if (IsStunned) return;
             float push = config != null ? config.waterGunKnockbackDistance : 1.5f;
             Vector3 delta = new Vector3(shotDir.x, 0f, shotDir.z).normalized * push;
+
+            if (IsSoloMode)
+            {
+                // Solo has no NGO transport; the server IS the owner.
+                transform.position += delta;
+                return;
+            }
+
+            // Send only to the victim's owner client.
+            var target = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { OwnerClientId } }
+            };
+            ApplyKnockbackClientRpc(delta, target);
+        }
+
+        [ClientRpc]
+        private void ApplyKnockbackClientRpc(Vector3 delta, ClientRpcParams _ = default)
+        {
+            // Only the owner ever receives this (we scoped it above). Owner writes its authoritative
+            // transform; ClientNetworkTransform replicates the new position to the server and peers.
+            if (!IsOwner) return;
             transform.position += delta;
         }
 

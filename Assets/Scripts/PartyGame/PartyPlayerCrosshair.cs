@@ -1,90 +1,102 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace PartyGame
 {
     /// <summary>
-    /// Owner-side world-space crosshair for the water gun.
-    /// Auto-spawns a small quad at the mouse-projected aim point every frame.
-    /// Zero scene setup — a magenta ring (procedural texture) is created at runtime.
+    /// Owner-side crosshair for the water gun. Renders as a UI element on a dedicated
+    /// ScreenSpace-Overlay canvas so it draws on top of the entire 3D scene, including
+    /// other players' rafts. Follows the mouse position; hidden while not playing.
     ///
-    /// Attach to the PartyPlayer prefab. Non-owner instances render nothing.
+    /// Non-owner instances / bots render nothing.
     /// </summary>
     [RequireComponent(typeof(PartyPlayer))]
     public class PartyPlayerCrosshair : MonoBehaviour
     {
-        [SerializeField] private float size = 0.9f;
-        [SerializeField] private Color color = new Color(1f, 0.4f, 0.4f, 0.9f);
+        [SerializeField] private float pixelSize = 48f;
+        [SerializeField] private Color color = new Color(1f, 0.35f, 0.35f, 0.95f);
 
         private PartyPlayer player;
-        private GameObject reticle;
-        private MeshRenderer reticleRenderer;
+        private GameObject canvasGO;
+        private RectTransform reticleRT;
+        private RawImage reticleImage;
+        private Texture2D ringTexture;
 
         private void Awake()
         {
             player = GetComponent<PartyPlayer>();
         }
 
+        private void OnDestroy()
+        {
+            if (canvasGO != null) Destroy(canvasGO);
+            if (ringTexture != null) Destroy(ringTexture);
+        }
+
         private void LateUpdate()
         {
             if (player == null || !player.IsLocalController || player.IsBot)
             {
-                if (reticle != null) reticle.SetActive(false);
+                SetActive(false);
                 return;
             }
             if (PartyGameManager.Instance != null && !PartyGameManager.Instance.IsGamePlaying())
             {
-                if (reticle != null) reticle.SetActive(false);
+                SetActive(false);
                 return;
             }
-            EnsureReticle();
-            if (!player.TryReadAimWorldPosition(out Vector3 world))
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if (mouse == null)
             {
-                reticle.SetActive(false);
+                SetActive(false);
                 return;
             }
-            reticle.SetActive(true);
-            reticle.transform.position = new Vector3(world.x, 0.05f, world.z);
+            EnsureCanvas();
+            SetActive(true);
+            Vector2 mp = mouse.position.ReadValue();
+            reticleRT.position = new Vector3(mp.x, mp.y, 0f);
         }
 
-        private void EnsureReticle()
+        private void SetActive(bool v)
         {
-            if (reticle != null) return;
-            reticle = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            reticle.name = $"WaterGunReticle_P{player.PlayerIndex}";
-            var col = reticle.GetComponent<Collider>();
-            if (col != null) Destroy(col);
-            reticle.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // lie flat on water
-            reticle.transform.localScale = new Vector3(size, size, 1f);
+            if (canvasGO != null && canvasGO.activeSelf != v) canvasGO.SetActive(v);
+        }
 
-            reticleRenderer = reticle.GetComponent<MeshRenderer>();
-            var mat = new Material(Shader.Find("Sprites/Default"));
-            mat.color = color;
-            mat.mainTexture = BuildRingTexture(64, color);
-            // Draw on top of everything so an enemy raft never covers the crosshair.
-            // ZTest Always + a very high renderQueue puts it after all opaque + transparent geometry.
-            mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-            mat.SetInt("_ZWrite", 0);
-            mat.renderQueue = 5000;
-            reticleRenderer.sharedMaterial = mat;
-            reticleRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            reticleRenderer.receiveShadows = false;
-            // Force this renderer to render after everything else in URP too.
-            reticleRenderer.sortingOrder = 1000;
+        private void EnsureCanvas()
+        {
+            if (canvasGO != null) return;
+
+            canvasGO = new GameObject($"WaterGunCrosshairCanvas_P{player.PlayerIndex}");
+            var canvas = canvasGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 32767; // above every gameplay HUD (PartyHUD is 0)
+            canvasGO.AddComponent<CanvasScaler>();
+            // No GraphicRaycaster — the crosshair should never eat UI clicks.
+
+            var reticleGO = new GameObject("Reticle");
+            reticleGO.transform.SetParent(canvasGO.transform, false);
+            reticleRT = reticleGO.AddComponent<RectTransform>();
+            reticleRT.sizeDelta = new Vector2(pixelSize, pixelSize);
+            reticleImage = reticleGO.AddComponent<RawImage>();
+            reticleImage.raycastTarget = false;
+            ringTexture = BuildRingTexture(64, color);
+            reticleImage.texture = ringTexture;
+            reticleImage.color = Color.white;
         }
 
         private static Texture2D BuildRingTexture(int size, Color c)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             tex.wrapMode = TextureWrapMode.Clamp;
-            float outer = size * 0.5f;
-            float inner = size * 0.35f;
-            float tick = size * 0.08f;
+            float outer = size * 0.48f;
+            float inner = size * 0.32f;
+            float tick = size * 0.06f;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    float dx = x - outer + 0.5f;
-                    float dy = y - outer + 0.5f;
+                    float dx = x - size * 0.5f + 0.5f;
+                    float dy = y - size * 0.5f + 0.5f;
                     float d = Mathf.Sqrt(dx * dx + dy * dy);
                     bool inRing = d >= inner && d <= outer;
                     bool inCrosshair = (Mathf.Abs(dx) < tick && Mathf.Abs(dy) < outer)
@@ -95,11 +107,6 @@ namespace PartyGame
             }
             tex.Apply(false, true);
             return tex;
-        }
-
-        private void OnDestroy()
-        {
-            if (reticle != null) Destroy(reticle);
         }
     }
 }

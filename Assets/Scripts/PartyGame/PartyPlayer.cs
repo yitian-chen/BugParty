@@ -95,7 +95,8 @@ namespace PartyGame
             {
                 float total = config != null ? config.waterGunReloadSeconds : 4f;
                 if (total <= 0f) return 0f;
-                return 1f - Mathf.Clamp01(netWaterReloadT.Value / total);
+                // Clamp01 handles both the initial (t=total, n=0) and the grace-window overshoot (t<0, n>1).
+                return Mathf.Clamp01(1f - netWaterReloadT.Value / total);
             }
         }
 
@@ -239,6 +240,14 @@ namespace PartyGame
             {
                 movementInput = Vector3.zero;
             }
+            else if (netWaterReloading.Value)
+            {
+                // Locking movement during reload gives the reload window real cost + a clear
+                // opening for opponents. Item hotkeys / mouse polling still run so the player can
+                // interrupt the reload with RMB or press digit keys for their other items.
+                movementInput = Vector3.zero;
+                PollItemHotkeys();
+            }
             else
             {
                 ReadMovementInput();
@@ -259,11 +268,15 @@ namespace PartyGame
                 }
                 if (netWaterReloading.Value)
                 {
-                    netWaterReloadT.Value = Mathf.Max(0f, netWaterReloadT.Value - Time.deltaTime);
-                    if (netWaterReloadT.Value <= 0f)
+                    netWaterReloadT.Value -= Time.deltaTime;
+                    // Small grace window past t=0 so clients definitely sample a "near-done" tick
+                    // before we flip netWaterReloading to false. Without it, network sampling jitter
+                    // means clients often saw the bar stop at ~80% then vanish.
+                    if (netWaterReloadT.Value <= -0.15f)
                     {
                         netWaterAmmo.Value = config != null ? config.waterGunClipSize : 5;
                         netWaterReloading.Value = false;
+                        netWaterReloadT.Value = 0f;
                     }
                 }
                 TickFishingServer();
@@ -293,8 +306,17 @@ namespace PartyGame
 
             if (mouse.rightButton.wasPressedThisFrame)
             {
-                if (IsSoloMode) DoStartReload_Server();
-                else if (IsOwner) StartReloadServerRpc();
+                // If we're already reloading, this second press cancels the reload.
+                if (netWaterReloading.Value)
+                {
+                    if (IsSoloMode) DoCancelReload_Server();
+                    else if (IsOwner) CancelReloadServerRpc();
+                }
+                else
+                {
+                    if (IsSoloMode) DoStartReload_Server();
+                    else if (IsOwner) StartReloadServerRpc();
+                }
             }
 
             if (mouse.leftButton.wasPressedThisFrame && localFireCooldown <= 0f)
@@ -367,6 +389,7 @@ namespace PartyGame
         [ServerRpc] private void CancelFishingServerRpc() { if (activeFishing != null && !activeFishing.IsFinished) activeFishing.Cancel(); }
         [ServerRpc] private void FireWaterServerRpc(Vector3 targetWorld) => DoFireWater_Server(targetWorld);
         [ServerRpc] private void StartReloadServerRpc() => DoStartReload_Server();
+        [ServerRpc] private void CancelReloadServerRpc() => DoCancelReload_Server();
 
         // ---- Server-side handlers ----
 
@@ -374,6 +397,9 @@ namespace PartyGame
         {
             if (!CanAuthor) return;
             if (IsStunned) return;
+            // E during a reload is a no-op — the reload window is meant to lock the player out of
+            // other actions. Cancel with RMB first if you want to fish/steal.
+            if (netWaterReloading.Value) return;
             // E: fish or steal.
             if (currentFishingSpot != null && activeFishing == null)
             {
@@ -494,6 +520,15 @@ namespace PartyGame
             if (netWaterAmmo.Value >= (config != null ? config.waterGunClipSize : 5)) return;
             netWaterReloadT.Value = config != null ? config.waterGunReloadSeconds : 4f;
             netWaterReloading.Value = true;
+        }
+
+        private void DoCancelReload_Server()
+        {
+            if (!CanAuthor) return;
+            if (!netWaterReloading.Value) return;
+            netWaterReloading.Value = false;
+            netWaterReloadT.Value = 0f;
+            // Ammo stays at whatever it was — canceling loses the in-progress reload.
         }
 
         private void ApplyWaterHit_Server(Vector3 shotDir)

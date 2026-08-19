@@ -760,8 +760,12 @@ namespace PartyGame
                 float moveDistance = currentForwardSpeed * Time.deltaTime;
                 Vector3 desired = fwd * Mathf.Sign(currentForwardSpeed);
                 Vector3 delta = TryMove(desired, Mathf.Abs(moveDistance)) * Mathf.Sign(currentForwardSpeed);
-                // If TryMove reported zero (hit a wall), kill the residual speed so we don't grind.
-                if (delta.sqrMagnitude < 1e-6f) currentForwardSpeed = 0f;
+                // NOTE: intentionally do NOT clamp currentForwardSpeed to 0 when delta is zero — with
+                // tiny per-frame moveDistances (accel-ramp startup) CapsuleCast frequently reports an
+                // initial-overlap hit and returns 0, which would strand the raft at rest. Old
+                // behavior (before inertia) was to keep re-issuing input every frame; keeping the
+                // accumulated speed nonzero preserves that behavior so TryEscapeOverlap can gradually
+                // push us free.
                 transform.position += delta;
             }
         }

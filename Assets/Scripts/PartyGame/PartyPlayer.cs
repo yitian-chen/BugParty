@@ -186,6 +186,8 @@ namespace PartyGame
             {
                 if (GetComponent<PartyPlayerCrosshair>() == null) gameObject.AddComponent<PartyPlayerCrosshair>();
             }
+            // Reload bar is world-space and visible to everyone, so every peer gets its own copy.
+            if (GetComponent<WaterReloadBar>() == null) gameObject.AddComponent<WaterReloadBar>();
         }
 
         private bool subscribed;

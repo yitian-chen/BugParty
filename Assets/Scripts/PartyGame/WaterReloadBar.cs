@@ -49,7 +49,7 @@ namespace PartyGame
             if (!showing) return;
 
             barRoot.position = transform.position + offset;
-            var cam = Camera.main;
+            var cam = GameWorldCamera.Resolve();
             if (cam != null) barRoot.rotation = cam.transform.rotation;
 
             ApplyFill(Mathf.Clamp01(player.WaterReloadNormalized));

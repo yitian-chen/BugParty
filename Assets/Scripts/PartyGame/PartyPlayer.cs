@@ -343,7 +343,7 @@ namespace PartyGame
         public bool TryReadAimWorldPosition(out Vector3 world)
         {
             world = default;
-            var cam = Camera.main;
+            var cam = GameWorldCamera.Resolve();
             var mouse = UnityEngine.InputSystem.Mouse.current;
             if (cam == null || mouse == null) return false;
             Vector2 mp = mouse.position.ReadValue();

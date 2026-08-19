@@ -100,7 +100,7 @@ namespace PartyGame
                 // Grow the splash while fading it, so it looks like a bloom.
                 float s = splashSize * (1f + (1f - k) * 1.2f);
                 splashTF.localScale = new Vector3(s, s, 1f);
-                var cam = Camera.main;
+                var cam = GameWorldCamera.Resolve();
                 if (cam != null) splashTF.rotation = cam.transform.rotation;
                 var r = splashGO.GetComponentInChildren<Renderer>();
                 if (r != null && r.sharedMaterial != null)

@@ -95,7 +95,7 @@ namespace PartyGame
             bool show = owner != null && owner.IsStunned;
             SetVisible(show);
 
-            var cam = Camera.main;
+            var cam = GameWorldCamera.Resolve();
             if (cam != null && canvas != null)
                 canvas.transform.rotation = cam.transform.rotation;
         }

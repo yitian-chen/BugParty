@@ -64,7 +64,7 @@ namespace PartyGame
                 ApplyFill();
             }
 
-            Camera cam = Camera.main;
+            Camera cam = GameWorldCamera.Resolve();
             if (cam != null)
             {
                 transform.rotation = cam.transform.rotation;

@@ -93,7 +93,7 @@ namespace PartyGame
             float alpha = Mathf.Clamp01(bannerRemaining / Mathf.Max(0.01f, bannerTotal));
             var c = bannerText.color; c.a = Mathf.Clamp01(alpha * 1.5f); bannerText.color = c;
 
-            var cam = Camera.main;
+            var cam = GameWorldCamera.Resolve();
             if (cam == null) return;
             Vector3 headWorld = transform.position + headWorldOffset;
             Vector3 sp = cam.WorldToScreenPoint(headWorld);

@@ -48,6 +48,11 @@ namespace PartyGame
         private NetworkVariable<SlotSync> netSlot1 = new NetworkVariable<SlotSync>(new SlotSync{kind=-1});
         private NetworkVariable<bool>  netIsFishing = new NetworkVariable<bool>(false);
         private NetworkVariable<float> netFishingProgress = new NetworkVariable<float>(0f);
+        // Water gun: server-authoritative ammo, reload state and slow-after-hit timer.
+        private NetworkVariable<int>   netWaterAmmo       = new NetworkVariable<int>(5);
+        private NetworkVariable<bool>  netWaterReloading  = new NetworkVariable<bool>(false);
+        private NetworkVariable<float> netWaterReloadT    = new NetworkVariable<float>(0f); // seconds remaining
+        private NetworkVariable<float> netSlowTimer       = new NetworkVariable<float>(0f); // seconds remaining
 
         // Local mirrors of item slots (materialized ItemInstance from SlotSync + config lookup).
         private ItemInstance[] itemSlots;
@@ -62,6 +67,8 @@ namespace PartyGame
         public event EventHandler OnCarriedFishChanged;
         public event EventHandler OnItemsChanged;
         public event EventHandler OnStunned;
+        public event EventHandler OnWaterGunChanged;   // fired when ammo / reload state changes
+        public event EventHandler OnWaterGunFired;     // fired on client when a shot lands (for VFX)
 
         public int PlayerIndex => playerIndex;
         public int CarriedCommon => netCarriedCommon.Value;
@@ -69,6 +76,7 @@ namespace PartyGame
         public int CarriedFishTotal => netCarriedCommon.Value + netCarriedGolden.Value;
         public int RaftFishCapacity => config != null ? config.raftFishCapacity : 2;
         public bool IsStunned => netStunTimer.Value > 0f;
+        public bool IsSlowed => netSlowTimer.Value > 0f;
         public bool IsWalking => movementInput.sqrMagnitude > 0.01f;
         public FishingAction ActiveFishing => activeFishing;
         public bool IsFishingRemote => netIsFishing.Value; // for UI on non-server clients
@@ -77,6 +85,19 @@ namespace PartyGame
         public Island CurrentIsland => currentIsland;
         public ItemInstance[] ItemSlots => itemSlots;
         public PartyGameConfig Config => config;
+        // Water gun read-only state for HUD.
+        public int WaterAmmo => netWaterAmmo.Value;
+        public int WaterClipSize => config != null ? config.waterGunClipSize : 5;
+        public bool WaterReloading => netWaterReloading.Value;
+        public float WaterReloadNormalized
+        {
+            get
+            {
+                float total = config != null ? config.waterGunReloadSeconds : 4f;
+                if (total <= 0f) return 0f;
+                return 1f - Mathf.Clamp01(netWaterReloadT.Value / total);
+            }
+        }
 
         private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
         private bool CanAuthor => IsSoloMode || IsServer;
@@ -156,7 +177,15 @@ namespace PartyGame
                 if (b && !a) OnFishingStarted?.Invoke(this, EventArgs.Empty);
                 else if (!b && a) OnFishingEnded?.Invoke(this, EventArgs.Empty);
             };
+            netWaterAmmo.OnValueChanged      += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
+            netWaterReloading.OnValueChanged += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
             RebuildLocalSlots();
+
+            // Auto-attach owner-only helpers so the prefab doesn't need to carry these components.
+            if (IsLocalController && !isBot)
+            {
+                if (GetComponent<PartyPlayerCrosshair>() == null) gameObject.AddComponent<PartyPlayerCrosshair>();
+            }
         }
 
         private bool subscribed;
@@ -222,6 +251,19 @@ namespace PartyGame
                     float t = netStunTimer.Value - Time.deltaTime;
                     netStunTimer.Value = Mathf.Max(0f, t);
                 }
+                if (netSlowTimer.Value > 0f)
+                {
+                    netSlowTimer.Value = Mathf.Max(0f, netSlowTimer.Value - Time.deltaTime);
+                }
+                if (netWaterReloading.Value)
+                {
+                    netWaterReloadT.Value = Mathf.Max(0f, netWaterReloadT.Value - Time.deltaTime);
+                    if (netWaterReloadT.Value <= 0f)
+                    {
+                        netWaterAmmo.Value = config != null ? config.waterGunClipSize : 5;
+                        netWaterReloading.Value = false;
+                    }
+                }
                 TickFishingServer();
             }
 
@@ -235,6 +277,52 @@ namespace PartyGame
             if (kb == null) return;
             if (kb.digit1Key.wasPressedThisFrame) RequestUseItem(0);
             if (kb.digit2Key.wasPressedThisFrame) RequestUseItem(1);
+            PollWaterGunMouse();
+        }
+
+        private float localFireCooldown;
+
+        private void PollWaterGunMouse()
+        {
+            if (!IsLocalController) return;
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if (mouse == null) return;
+            if (localFireCooldown > 0f) localFireCooldown -= Time.deltaTime;
+
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                if (IsSoloMode) DoStartReload_Server();
+                else if (IsOwner) StartReloadServerRpc();
+            }
+
+            if (mouse.leftButton.wasPressedThisFrame && localFireCooldown <= 0f)
+            {
+                Vector3 target;
+                if (TryReadAimWorldPosition(out target))
+                {
+                    localFireCooldown = config != null ? config.waterGunFireCooldown : 0.25f;
+                    if (IsSoloMode) DoFireWater_Server(target);
+                    else if (IsOwner) FireWaterServerRpc(target);
+                }
+            }
+        }
+
+        /// <summary>Owner-side helper: shoot a ray from the main camera through the mouse and intersect y=0 to get an aim point.</summary>
+        public bool TryReadAimWorldPosition(out Vector3 world)
+        {
+            world = default;
+            var cam = Camera.main;
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if (cam == null || mouse == null) return false;
+            Vector2 mp = mouse.position.ReadValue();
+            Ray ray = cam.ScreenPointToRay(new Vector3(mp.x, mp.y, 0f));
+            // Intersect with y = player-height plane (approx torso height) to keep aim visually near feet at any camera tilt.
+            float planeY = transform.position.y + 0.5f;
+            if (Mathf.Abs(ray.direction.y) < 1e-4f) return false;
+            float t = (planeY - ray.origin.y) / ray.direction.y;
+            if (t <= 0f) return false;
+            world = ray.origin + ray.direction * t;
+            return true;
         }
 
         // ---- Input entry points: solo path calls locally; networked owner path calls ServerRpc. ----
@@ -267,6 +355,8 @@ namespace PartyGame
         [ServerRpc] private void DepositOneServerRpc() => DoDepositOne_Server();
         [ServerRpc] private void UseItemServerRpc(int slotIndex) => DoUseItem_Server(slotIndex);
         [ServerRpc] private void CancelFishingServerRpc() { if (activeFishing != null && !activeFishing.IsFinished) activeFishing.Cancel(); }
+        [ServerRpc] private void FireWaterServerRpc(Vector3 targetWorld) => DoFireWater_Server(targetWorld);
+        [ServerRpc] private void StartReloadServerRpc() => DoStartReload_Server();
 
         // ---- Server-side handlers ----
 
@@ -339,6 +429,87 @@ namespace PartyGame
             var netObj = mineGO.GetComponent<NetworkObject>();
             if (!IsSoloMode && netObj != null) netObj.Spawn(true);
             ConsumeSlotDurability_Server(slotIndex);
+        }
+
+        // ---- Water gun (server-authoritative) ----
+
+        private void DoFireWater_Server(Vector3 targetWorld)
+        {
+            if (!CanAuthor) return;
+            if (IsStunned) return;
+            if (netWaterReloading.Value) return;
+            if (netWaterAmmo.Value <= 0) return;
+
+            float range = config != null ? config.waterGunRange : 8f;
+            float radius = config != null ? config.waterGunHitRadius : 0.7f;
+
+            Vector3 origin = transform.position + Vector3.up * 0.9f;
+            Vector3 aim = targetWorld; aim.y = origin.y;
+            Vector3 dir = aim - origin; dir.y = 0f;
+            float aimDist = dir.magnitude;
+            if (aimDist < 0.01f) return;
+            dir /= aimDist;
+
+            float castLen = Mathf.Min(range, aimDist + radius);
+            PartyPlayer bestVictim = null; float bestDist = float.PositiveInfinity;
+            // Iterate players; server-side hit resolution is a simple capsule-vs-ray so aim assist stays generous.
+            var all = FindObjectsOfType<PartyPlayer>();
+            foreach (var p in all)
+            {
+                if (p == null || p == this) continue;
+                Vector3 to = p.transform.position - origin; to.y = 0f;
+                float projected = Vector3.Dot(to, dir);
+                if (projected < 0f || projected > castLen) continue;
+                Vector3 closest = origin + dir * projected;
+                float lateral = Vector2.Distance(new Vector2(closest.x, closest.z), new Vector2(p.transform.position.x, p.transform.position.z));
+                if (lateral > radius + 0.5f) continue; // 0.5 body radius allowance
+                if (projected < bestDist) { bestDist = projected; bestVictim = p; }
+            }
+
+            netWaterAmmo.Value = Mathf.Max(0, netWaterAmmo.Value - 1);
+            Vector3 endPoint = origin + dir * (bestVictim != null ? bestDist : castLen);
+            BroadcastWaterShotClientRpc(origin, endPoint, bestVictim != null);
+
+            if (bestVictim != null)
+            {
+                bestVictim.ApplyWaterHit_Server(dir);
+            }
+        }
+
+        private void DoStartReload_Server()
+        {
+            if (!CanAuthor) return;
+            if (IsStunned) return;
+            if (netWaterReloading.Value) return;
+            if (netWaterAmmo.Value >= (config != null ? config.waterGunClipSize : 5)) return;
+            netWaterReloadT.Value = config != null ? config.waterGunReloadSeconds : 4f;
+            netWaterReloading.Value = true;
+        }
+
+        private void ApplyWaterHit_Server(Vector3 shotDir)
+        {
+            if (!CanAuthor) return;
+            netSlowTimer.Value = Mathf.Max(netSlowTimer.Value, config != null ? config.waterGunSlowDuration : 1f);
+            // Kick the victim's transform backward — server writes to the transform; NetworkTransform
+            // replicates the position to every client. Skip while stunned (they're already prone).
+            if (IsStunned) return;
+            float push = config != null ? config.waterGunKnockbackDistance : 1.5f;
+            Vector3 delta = new Vector3(shotDir.x, 0f, shotDir.z).normalized * push;
+            transform.position += delta;
+        }
+
+        [ClientRpc]
+        private void BroadcastWaterShotClientRpc(Vector3 from, Vector3 to, bool hit)
+        {
+            // Cosmetic-only for now: PartyPlayerWaterGunVisual (if attached) can subscribe to this.
+            OnWaterGunFired?.Invoke(this, new WaterShotEventArgs { from = from, to = to, hit = hit });
+        }
+
+        public class WaterShotEventArgs : System.EventArgs
+        {
+            public Vector3 from;
+            public Vector3 to;
+            public bool hit;
         }
 
         private void ConsumeSlotDurability_Server(int slotIndex)
@@ -467,7 +638,8 @@ namespace PartyGame
                 Vector3 fwd = transform.forward;
                 fwd.y = 0f; fwd.Normalize();
                 lastMoveDir = fwd;
-                float speed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul;
+                float slowMul = IsSlowed && config != null ? config.waterGunSlowMultiplier : 1f;
+                float speed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul * slowMul;
                 float moveDistance = forward * speed * Time.deltaTime;
                 Vector3 desired = fwd * Mathf.Sign(forward);
                 Vector3 delta = TryMove(desired, Mathf.Abs(moveDistance)) * Mathf.Sign(forward);

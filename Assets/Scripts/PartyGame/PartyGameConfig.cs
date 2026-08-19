@@ -47,6 +47,24 @@ namespace PartyGame
         [Tooltip("Prefab used when a player places a Mine. Must have a Mine component.")]
         public GameObject minePrefabRef;
 
+        [Header("Water Gun (default sidearm)")]
+        [Tooltip("Effective shot range in meters (short-range).")]
+        public float waterGunRange = 8f;
+        [Tooltip("Cylinder cast radius to be forgiving about aim precision.")]
+        public float waterGunHitRadius = 0.7f;
+        [Tooltip("Clip capacity.")]
+        public int waterGunClipSize = 5;
+        [Tooltip("Seconds needed to fully reload from empty (or from any non-full state).")]
+        public float waterGunReloadSeconds = 4f;
+        [Tooltip("Minimum seconds between consecutive shots.")]
+        public float waterGunFireCooldown = 0.25f;
+        [Tooltip("Meters the victim is pushed backward on hit.")]
+        public float waterGunKnockbackDistance = 1.5f;
+        [Tooltip("Seconds the victim is slowed after being hit.")]
+        public float waterGunSlowDuration = 1f;
+        [Tooltip("Movement speed multiplier while slowed (0.4 = 60% slower).")]
+        public float waterGunSlowMultiplier = 0.4f;
+
         [Header("Item Registry (for network kind -> SO lookup)")]
         [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]
         public ItemDataSO[] allItems;

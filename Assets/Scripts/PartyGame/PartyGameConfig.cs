@@ -66,8 +66,6 @@ namespace PartyGame
         public float waterGunSlowMultiplier = 0.4f;
         [Tooltip("Seconds the victim is stunned after being hit (applied together with knockback).")]
         public float waterGunStunDuration = 1f;
-        [Tooltip("Seconds the victim is stunned after being hit (applied together with knockback).")]
-        public float waterGunStunDuration = 1f;
         [Tooltip("Prefab to instantiate above the player's head while reloading. Reuse the fishing progress bar prefab for visual consistency; the runtime WaterReloadBar drives the FillPivot child.")]
         public GameObject reloadBarPrefab;
 

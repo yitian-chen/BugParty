@@ -492,6 +492,12 @@ namespace PartyGame
         {
             if (!CanAuthor) return;
             netSlowTimer.Value = Mathf.Max(netSlowTimer.Value, config != null ? config.waterGunSlowDuration : 1f);
+            // Interrupt any ongoing fishing / stealing (Interrupt consumes item durability like a
+            // knife hit — deliberate, since the victim's action is being cut short by force).
+            if (activeFishing != null && !activeFishing.IsFinished)
+            {
+                activeFishing.Interrupt();
+            }
             // The victim's transform is driven by ClientNetworkTransform (client-authoritative), so
             // writing to it server-side would be silently overwritten by the owner's next update.
             // Route the knockback to the owning client via a targeted ClientRpc; the owner applies

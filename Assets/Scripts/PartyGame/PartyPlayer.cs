@@ -498,11 +498,15 @@ namespace PartyGame
             {
                 activeFishing.Interrupt();
             }
+            // Stun the victim for a short window in addition to the knockback + slow, so the shot
+            // has real interrupt weight (they can't immediately shoot back). Stun uses the shared
+            // netStunTimer path (same as mines/wave stuns).
+            float stun = config != null ? config.waterGunStunDuration : 1f;
+            if (stun > 0f) Stun(stun);
             // The victim's transform is driven by ClientNetworkTransform (client-authoritative), so
             // writing to it server-side would be silently overwritten by the owner's next update.
             // Route the knockback to the owning client via a targeted ClientRpc; the owner applies
             // the impulse to its own transform, and NT replicates it back to everyone.
-            if (IsStunned) return;
             float push = config != null ? config.waterGunKnockbackDistance : 1.5f;
             Vector3 delta = new Vector3(shotDir.x, 0f, shotDir.z).normalized * push;
 

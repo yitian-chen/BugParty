@@ -347,7 +347,13 @@ namespace PartyGame
             var mouse = UnityEngine.InputSystem.Mouse.current;
             if (cam == null || mouse == null) return false;
             Vector2 mp = mouse.position.ReadValue();
-            Ray ray = cam.ScreenPointToRay(new Vector3(mp.x, mp.y, 0f));
+            // With the pixel camera, cam.targetTexture (RT) is 640x360 while the OS mouse coord
+            // is in screen pixels. ScreenPointToRay would treat mp as RT-space and give a wildly
+            // wrong world position. Convert via viewport (0..1) using the screen size instead.
+            float sw = Screen.width, sh = Screen.height;
+            if (sw <= 0f || sh <= 0f) return false;
+            Vector2 vp = new Vector2(mp.x / sw, mp.y / sh);
+            Ray ray = cam.ViewportPointToRay(new Vector3(vp.x, vp.y, 0f));
             // Intersect with y = player-height plane (approx torso height) to keep aim visually near feet at any camera tilt.
             float planeY = transform.position.y + 0.5f;
             if (Mathf.Abs(ray.direction.y) < 1e-4f) return false;

@@ -84,12 +84,12 @@ namespace PartyGame
         public float hookCooldown = 4f;
         [Tooltip("Total number of hook shots granted per pickup — item is consumed when durability hits 0.")]
         public int hookDurability = 5;
-        [Tooltip("How far in front of the caster (meters) a hooked player is placed after the pull.")]
-        public float hookPullTargetDistance = 2.0f;
+        [Tooltip("How far in front of the caster (meters) a hooked player is placed after the pull. Keep it larger than a raft's half-diameter to avoid overlap.")]
+        public float hookPullTargetDistance = 3.5f;
         [Tooltip("Cylinder cast radius for forgiving hooked-target detection.")]
         public float hookHitRadius = 1.2f;
-        [Tooltip("Seconds a hooked victim smoothly lerps toward the drop position (owner-side).")]
-        public float hookPullDuration = 0.7f;
+        [Tooltip("Seconds the hooked player is stunned once the pull lands them next to the caster.")]
+        public float hookVictimStunDuration = 2f;
 
         [Header("Item Registry (for network kind -> SO lookup)")]
         [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]

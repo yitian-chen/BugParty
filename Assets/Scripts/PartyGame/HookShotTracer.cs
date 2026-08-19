@@ -31,11 +31,26 @@ namespace PartyGame
         private static readonly Color RopeColorHit  = new Color(1f,   1f,   0.4f, 1f);
         private static readonly Color HookColor     = new Color(0.2f, 0.2f, 0.22f, 1f);
 
-        public static void Spawn(Vector3 from, Vector3 to, bool hit)
+        public static HookShotTracer Spawn(Vector3 from, Vector3 to, bool hit)
         {
             var go = new GameObject("HookTracer");
             var tr = go.AddComponent<HookShotTracer>();
             tr.Configure(from, to, hit);
+            return tr;
+        }
+
+        /// <summary>
+        /// Server-triggered cut: freeze the rope tip at `newTip` (where the hook actually caught
+        /// something mid-flight) and skip any further extension. Used when the sweep resolves a
+        /// moving player-hit shorter than the tracer's initial endpoint.
+        /// </summary>
+        public void CutShort(Vector3 newTip)
+        {
+            to = newTip;
+            // Force phase 1 to end immediately by advancing t past extendDuration.
+            if (t < extendDuration) t = extendDuration;
+            if (rope != null) rope.SetPosition(1, newTip);
+            if (hookHeadTF != null) hookHeadTF.position = newTip;
         }
 
         public void Configure(Vector3 from, Vector3 to, bool hit)

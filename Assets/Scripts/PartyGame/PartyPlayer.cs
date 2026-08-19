@@ -814,62 +814,86 @@ namespace PartyGame
             if (dir.sqrMagnitude < 1e-4f) return;
             dir.Normalize();
 
-            // Scan players and islands separately; pick whichever is closest along the ray.
-            PartyPlayer playerHit; float playerDist;
-            Island islandHit;      float islandDist;
-            FindHookPlayerHit(origin, dir, range, radius, out playerHit, out playerDist);
+            // Islands are static so we resolve them at fire time (safe). Players are resolved
+            // per-frame in the sweep coroutine below, matching the rope tip's live position — so
+            // a target that runs out of the ray isn't hit, and a target that runs into it IS hit.
+            Island islandHit; float islandDist;
             FindHookIslandHit(origin, dir, range, radius, out islandHit, out islandDist);
 
-            bool hitAnything = playerHit != null || islandHit != null;
-            float endDist;
-            Vector3 dropPos = default;
-            if (playerHit != null && (islandHit == null || playerDist <= islandDist))
-            {
-                endDist = playerDist;
-                float dropDist = config != null ? config.hookPullTargetDistance : 2f;
-                dropPos = origin + dir * dropDist;
-                dropPos.y = playerHit.transform.position.y;
-                islandHit = null;
-            }
-            else if (islandHit != null)
-            {
-                endDist = islandDist;
-                playerHit = null;
-            }
-            else
-            {
-                endDist = range;
-            }
+            // The rope's visual extends to whatever we CAN'T rule out yet: island distance if an
+            // island is in the line, otherwise max range. If the sweep resolves a player-hit early,
+            // the pull fires immediately even though the rope visual continues to its endpoint;
+            // this small mismatch is preferable to lagging the tracer by a whole travel time.
+            float initialEndDist = islandHit != null ? islandDist : range;
+            Vector3 endPoint = origin + dir * initialEndDist;
+            BroadcastHookShotClientRpc(origin, endPoint, islandHit != null);
 
-            Vector3 endPoint = origin + dir * endDist;
-            // Fire the visual immediately so caster + peers see the rope shoot out.
-            BroadcastHookShotClientRpc(origin, endPoint, hitAnything);
-
-            // Consume cooldown + durability up-front so the shot can't be double-fired while
-            // the rope is still traveling. Actual pull / steal is applied when the rope arrives.
+            // Cooldown + durability consumed at fire time so a shot can't be re-fired mid-flight.
             netHookCooldownT.Value = config != null ? config.hookCooldown : 4f;
             ConsumeSlotDurability_Server(hookSlot);
 
-            if (!hitAnything) return;
-
             float castSpeed = config != null && config.hookCastSpeed > 0.01f ? config.hookCastSpeed : 18f;
-            float travelTime = endDist / castSpeed;
-            StartCoroutine(ApplyHookHitAfterDelay_Server(travelTime, playerHit, islandHit, dropPos));
+            StartCoroutine(HookSweepAndResolve_Server(origin, dir, radius, castSpeed, initialEndDist, islandHit, endPoint));
         }
 
-        private System.Collections.IEnumerator ApplyHookHitAfterDelay_Server(float delay, PartyPlayer victim, Island island, Vector3 dropPos)
+        /// <summary>
+        /// Advance the rope tip at castSpeed and, each frame, look for a player whose CURRENT
+        /// position is within hit-radius of the tip. First-in-first-hit; if we reach the initial
+        /// island target with no player hit and an island was queued, apply the island steal.
+        /// Otherwise the shot misses (durability already burned).
+        /// </summary>
+        private System.Collections.IEnumerator HookSweepAndResolve_Server(Vector3 origin, Vector3 dir, float radius, float castSpeed, float initialEndDist, Island islandHit, Vector3 initialEndPoint)
         {
-            if (delay > 0f) yield return new WaitForSeconds(delay);
+            float elapsed = 0f;
+            float maxTime = initialEndDist / Mathf.Max(0.01f, castSpeed);
+            while (elapsed < maxTime)
+            {
+                yield return null;
+                elapsed += Time.deltaTime;
+                if (!CanAuthor) yield break;
+
+                float tipDist = Mathf.Min(elapsed * castSpeed, initialEndDist);
+                Vector3 tip = origin + dir * tipDist;
+
+                var all = FindObjectsOfType<PartyPlayer>();
+                foreach (var p in all)
+                {
+                    if (p == null || p == this) continue;
+                    // XZ-plane hit test around the tip's current position. Slightly generous with
+                    // an added body-radius allowance so a raft grazed by the rope still counts.
+                    Vector3 dp = p.transform.position - tip; dp.y = 0f;
+                    float d = dp.magnitude;
+                    if (d <= radius + 0.5f)
+                    {
+                        // Player hit — pull them to the caster's front. Cut the rope short on all
+                        // clients so the visual stops extending past the actual catch point.
+                        float dropDist = config != null ? config.hookPullTargetDistance : 3.5f;
+                        Vector3 dropPos = transform.position + dir * dropDist;
+                        dropPos.y = p.transform.position.y;
+                        // Anchor the tracer at the victim's chest height, matching the shot origin plane.
+                        Vector3 tipAnchor = new Vector3(p.transform.position.x, origin.y, p.transform.position.z);
+                        BroadcastHookTracerCutClientRpc(tipAnchor);
+                        ApplyHookPullPlayer_Server(p, dropPos);
+                        yield break;
+                    }
+                }
+            }
+
+            // Rope reached the initial endpoint without catching a player.
+            if (islandHit == null) yield break;
+
+            var reservedFish = islandHit.ReserveSteal(this);
+            if (reservedFish == null) yield break;
+
+            Vector3 fromWorld = initialEndPoint;
+            Vector3 toWorld = transform.position + Vector3.up * 0.5f;
+            float dist = Vector3.Distance(fromWorld, toWorld);
+            float flyTime = Mathf.Max(0.05f, dist / castSpeed);
+            BroadcastHookFishFlyClientRpc(fromWorld, toWorld, (int)reservedFish.Value, flyTime);
+            yield return new WaitForSeconds(flyTime);
             if (!CanAuthor) yield break;
-            if (victim != null)
-            {
-                ApplyHookPullPlayer_Server(victim, dropPos);
-            }
-            else if (island != null)
-            {
-                var stolen = island.StealOne(this);
-                if (stolen != null) BroadcastStolenClientRpc((int)stolen.Value);
-            }
+            AddFish_Server(reservedFish.Value, 1);
+            BroadcastStolenClientRpc((int)reservedFish.Value);
         }
 
         private int FindHookSlotIndex()
@@ -881,23 +905,6 @@ namespace PartyGame
                 if (s != null && !s.IsEmpty && s.data != null && s.data.kind == ItemKind.Hook) return i;
             }
             return -1;
-        }
-
-        private void FindHookPlayerHit(Vector3 origin, Vector3 dir, float range, float radius, out PartyPlayer victim, out float distance)
-        {
-            victim = null; distance = float.PositiveInfinity;
-            var all = FindObjectsOfType<PartyPlayer>();
-            foreach (var p in all)
-            {
-                if (p == null || p == this) continue;
-                Vector3 to = p.transform.position - origin; to.y = 0f;
-                float projected = Vector3.Dot(to, dir);
-                if (projected < 0f || projected > range) continue;
-                Vector3 closest = origin + dir * projected;
-                float lateral = Vector2.Distance(new Vector2(closest.x, closest.z), new Vector2(p.transform.position.x, p.transform.position.z));
-                if (lateral > radius + 0.5f) continue;
-                if (projected < distance) { distance = projected; victim = p; }
-            }
         }
 
         private void FindHookIslandHit(Vector3 origin, Vector3 dir, float range, float radius, out Island island, out float distance)
@@ -928,21 +935,39 @@ namespace PartyGame
             if (victim.activeFishing != null && !victim.activeFishing.IsFinished)
                 victim.activeFishing.Interrupt();
 
+            // Compute the pull duration now so we can schedule the follow-up stun to land exactly
+            // when the visual arrives. Kept in sync with PullLerpCoroutine's own formula.
+            float castSpeed = config != null && config.hookCastSpeed > 0.01f ? config.hookCastSpeed : 18f;
+            float pullDist = Vector3.Distance(victim.transform.position, dropPos);
+            float pullDuration = Mathf.Max(0.05f, pullDist / castSpeed);
+
             if (IsSoloMode)
             {
-                float duration = config != null ? config.hookPullDuration : 0.7f;
                 if (victim.activePullCoroutine != null) victim.StopCoroutine(victim.activePullCoroutine);
-                victim.activePullCoroutine = victim.StartCoroutine(victim.PullLerpCoroutine(dropPos, duration));
-                return;
+                victim.activePullCoroutine = victim.StartCoroutine(victim.PullLerpCoroutine(dropPos));
+            }
+            else
+            {
+                // ClientNetworkTransform is client-authoritative, so the owner must move themselves. Route
+                // via targeted ClientRpc to the victim's owner client (same pattern as water-gun knockback).
+                var target = new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams { TargetClientIds = new[] { victim.OwnerClientId } }
+                };
+                victim.PullToPositionClientRpc(dropPos, target);
             }
 
-            // ClientNetworkTransform is client-authoritative, so the owner must move themselves. Route
-            // via targeted ClientRpc to the victim's owner client (same pattern as water-gun knockback).
-            var target = new ClientRpcParams
-            {
-                Send = new ClientRpcSendParams { TargetClientIds = new[] { victim.OwnerClientId } }
-            };
-            victim.PullToPositionClientRpc(dropPos, target);
+            // Server-authoritative stun scheduled to fire when the pull lands. Stun uses the shared
+            // netStunTimer path (same as mines / water-gun) so all clients see 眩晕 label + input lock.
+            float stunDur = config != null ? config.hookVictimStunDuration : 2f;
+            if (stunDur > 0f) StartCoroutine(StunVictimAfterPull_Server(victim, pullDuration, stunDur));
+        }
+
+        private System.Collections.IEnumerator StunVictimAfterPull_Server(PartyPlayer victim, float delay, float stunDur)
+        {
+            if (delay > 0f) yield return new WaitForSeconds(delay);
+            if (!CanAuthor || victim == null) yield break;
+            victim.Stun(stunDur);
         }
 
         [ClientRpc]
@@ -951,17 +976,20 @@ namespace PartyGame
             // Only the victim's owner receives this (scoped above). Owner writes its transform;
             // ClientNetworkTransform replicates the new pose to server + peers.
             if (!IsOwner) return;
-            float duration = config != null ? config.hookPullDuration : 0.7f;
             if (activePullCoroutine != null) StopCoroutine(activePullCoroutine);
-            activePullCoroutine = StartCoroutine(PullLerpCoroutine(pos, duration));
+            activePullCoroutine = StartCoroutine(PullLerpCoroutine(pos));
         }
 
         private Coroutine activePullCoroutine;
 
-        private System.Collections.IEnumerator PullLerpCoroutine(Vector3 target, float duration)
+        private System.Collections.IEnumerator PullLerpCoroutine(Vector3 target)
         {
             Vector3 start = transform.position;
             target.y = start.y;
+            // Pull duration mirrors the hook's cast time so the reel-in is visually symmetric with the rope-out.
+            float castSpeed = config != null && config.hookCastSpeed > 0.01f ? config.hookCastSpeed : 18f;
+            float dist = Vector3.Distance(start, target);
+            float duration = Mathf.Max(0.05f, dist / castSpeed);
             float t = 0f;
             while (t < duration)
             {
@@ -979,7 +1007,25 @@ namespace PartyGame
         [ClientRpc]
         private void BroadcastHookShotClientRpc(Vector3 from, Vector3 to, bool hit)
         {
-            HookShotTracer.Spawn(from, to, hit);
+            activeHookTracer = HookShotTracer.Spawn(from, to, hit);
+        }
+
+        [ClientRpc]
+        private void BroadcastHookTracerCutClientRpc(Vector3 tip)
+        {
+            // Freeze the current tracer's tip at the actual catch position. If for any reason we
+            // missed the spawn (RPC ordering / late-join), silently ignore.
+            if (activeHookTracer != null) activeHookTracer.CutShort(tip);
+        }
+
+        // Per-caster reference to the most recent tracer visual, so the server can cut it short
+        // mid-flight when the sweep resolves a player-hit before the tracer's initial endpoint.
+        private HookShotTracer activeHookTracer;
+
+        [ClientRpc]
+        private void BroadcastHookFishFlyClientRpc(Vector3 fromWorld, Vector3 toWorld, int fishType, float duration)
+        {
+            HookFishFlyVisual.Spawn(fromWorld, toWorld, (FishType)fishType, duration);
         }
 
 
@@ -1068,7 +1114,9 @@ namespace PartyGame
         {
             if (!useGameInput || GameInput.Instance == null) { movementInput = Vector3.zero; return; }
             Vector2 v = GameInput.Instance.GetMovementVectorNormalized();
-            movementInput = new Vector3(v.x, 0f, v.y);
+            // Disable reverse (S key): forward-only raft. Clamp any negative forward component.
+            float forward = Mathf.Max(0f, v.y);
+            movementInput = new Vector3(v.x, 0f, forward);
         }
 
         private void HandleMovement()

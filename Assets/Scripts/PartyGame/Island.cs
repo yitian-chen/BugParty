@@ -78,6 +78,22 @@ namespace PartyGame
             return stolen;
         }
 
+        /// <summary>
+        /// Server-only: reserve one fish for a delayed transfer (e.g. hook grapple). Decrements the
+        /// island's count immediately so nothing else can grab it, but does NOT add to the thief's
+        /// raft — the caller must call thief.AddFish later when the flying-fish visual arrives.
+        /// </summary>
+        public FishType? ReserveSteal(PartyPlayer thief)
+        {
+            if (!CanAuthor || thief == null) return null;
+            if (thief.CarriedFishTotal >= thief.RaftFishCapacity) return null;
+            FishType? stolen = null;
+            if (netCommon.Value > 0) { netCommon.Value--; stolen = FishType.Common; }
+            else if (netGolden.Value > 0) { netGolden.Value--; stolen = FishType.Golden; }
+            if (stolen != null && IsSoloMode) OnFishCountChanged?.Invoke(this, EventArgs.Empty);
+            return stolen;
+        }
+
         private void OnTriggerEnter(Collider other)
         {
             if (!CanAuthor) return; // server tracks presence; clients don't

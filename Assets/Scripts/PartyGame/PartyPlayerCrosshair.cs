@@ -4,9 +4,10 @@ using UnityEngine.UI;
 namespace PartyGame
 {
     /// <summary>
-    /// Owner-side crosshair for the water gun. Renders as a UI element on a dedicated
-    /// ScreenSpace-Overlay canvas so it draws on top of the entire 3D scene, including
-    /// other players' rafts. Follows the mouse position; hidden while not playing.
+    /// Owner-side crosshair + transient head banner for the water gun. Renders on a dedicated
+    /// ScreenSpace-Overlay canvas so it draws on top of the entire 3D scene, including other
+    /// players' rafts. The crosshair follows the mouse; the banner floats above the player's
+    /// head and is used for messages like "弹药耗尽". Both hidden while not playing.
     ///
     /// Non-owner instances / bots render nothing.
     /// </summary>
@@ -15,12 +16,20 @@ namespace PartyGame
     {
         [SerializeField] private float pixelSize = 48f;
         [SerializeField] private Color color = new Color(1f, 0.35f, 0.35f, 0.95f);
+        [SerializeField] private Vector3 headWorldOffset = new Vector3(0f, 2.5f, 0f);
+        [SerializeField] private int bannerFontSize = 32;
 
         private PartyPlayer player;
         private GameObject canvasGO;
         private RectTransform reticleRT;
         private RawImage reticleImage;
         private Texture2D ringTexture;
+
+        // Head-banner floating message (e.g. "弹药耗尽 请装填").
+        private RectTransform bannerRT;
+        private Text bannerText;
+        private float bannerRemaining;
+        private float bannerTotal;
 
         private void Awake()
         {
@@ -31,6 +40,17 @@ namespace PartyGame
         {
             if (canvasGO != null) Destroy(canvasGO);
             if (ringTexture != null) Destroy(ringTexture);
+        }
+
+        /// <summary>Show a transient banner over this player's head for `seconds`. Owner-only.</summary>
+        public void ShowHeadBanner(string message, float seconds = 1.2f)
+        {
+            if (player == null || !player.IsLocalController || player.IsBot) return;
+            EnsureCanvas();
+            if (bannerText == null) return;
+            bannerText.text = message;
+            bannerRemaining = seconds;
+            bannerTotal = seconds;
         }
 
         private void LateUpdate()
@@ -55,6 +75,30 @@ namespace PartyGame
             SetActive(true);
             Vector2 mp = mouse.position.ReadValue();
             reticleRT.position = new Vector3(mp.x, mp.y, 0f);
+
+            UpdateBanner();
+        }
+
+        private void UpdateBanner()
+        {
+            if (bannerRT == null) return;
+            if (bannerRemaining <= 0f)
+            {
+                if (bannerRT.gameObject.activeSelf) bannerRT.gameObject.SetActive(false);
+                return;
+            }
+
+            if (!bannerRT.gameObject.activeSelf) bannerRT.gameObject.SetActive(true);
+            bannerRemaining -= Time.deltaTime;
+            float alpha = Mathf.Clamp01(bannerRemaining / Mathf.Max(0.01f, bannerTotal));
+            var c = bannerText.color; c.a = Mathf.Clamp01(alpha * 1.5f); bannerText.color = c;
+
+            var cam = Camera.main;
+            if (cam == null) return;
+            Vector3 headWorld = transform.position + headWorldOffset;
+            Vector3 sp = cam.WorldToScreenPoint(headWorld);
+            if (sp.z <= 0f) { bannerRT.gameObject.SetActive(false); return; }
+            bannerRT.position = new Vector3(sp.x, sp.y, 0f);
         }
 
         private void SetActive(bool v)
@@ -71,7 +115,6 @@ namespace PartyGame
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 32767; // above every gameplay HUD (PartyHUD is 0)
             canvasGO.AddComponent<CanvasScaler>();
-            // No GraphicRaycaster — the crosshair should never eat UI clicks.
 
             var reticleGO = new GameObject("Reticle");
             reticleGO.transform.SetParent(canvasGO.transform, false);
@@ -82,6 +125,23 @@ namespace PartyGame
             ringTexture = BuildRingTexture(64, color);
             reticleImage.texture = ringTexture;
             reticleImage.color = Color.white;
+
+            var bannerGO = new GameObject("HeadBanner");
+            bannerGO.transform.SetParent(canvasGO.transform, false);
+            bannerRT = bannerGO.AddComponent<RectTransform>();
+            bannerRT.sizeDelta = new Vector2(420f, 60f);
+            bannerText = bannerGO.AddComponent<Text>();
+            bannerText.raycastTarget = false;
+            bannerText.alignment = TextAnchor.MiddleCenter;
+            bannerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            bannerText.fontSize = bannerFontSize;
+            bannerText.fontStyle = FontStyle.Bold;
+            bannerText.color = new Color(1f, 0.9f, 0.3f, 1f);
+            // Outline for readability against varied backgrounds.
+            var outline = bannerGO.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(2f, -2f);
+            bannerRT.gameObject.SetActive(false);
         }
 
         private static Texture2D BuildRingTexture(int size, Color c)
@@ -110,3 +170,4 @@ namespace PartyGame
         }
     }
 }
+

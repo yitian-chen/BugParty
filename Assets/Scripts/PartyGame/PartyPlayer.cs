@@ -299,6 +299,14 @@ namespace PartyGame
 
             if (mouse.leftButton.wasPressedThisFrame && localFireCooldown <= 0f)
             {
+                // Owner-local out-of-ammo hint. Server is the source of truth for ammo, but the
+                // client mirror is fine for showing an immediate "empty click" prompt.
+                if (netWaterAmmo.Value <= 0 && !netWaterReloading.Value)
+                {
+                    var ch = GetComponent<PartyPlayerCrosshair>();
+                    if (ch != null) ch.ShowHeadBanner("弹药耗尽 请装填 (右键)");
+                    return;
+                }
                 Vector3 target;
                 if (TryReadAimWorldPosition(out target))
                 {

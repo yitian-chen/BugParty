@@ -503,7 +503,9 @@ namespace PartyGame
         [ClientRpc]
         private void BroadcastWaterShotClientRpc(Vector3 from, Vector3 to, bool hit)
         {
-            // Cosmetic-only for now: PartyPlayerWaterGunVisual (if attached) can subscribe to this.
+            // Visible on every client (including the server host) — spawns a short-lived tracer at
+            // the actual muzzle→impact segment the server resolved.
+            WaterShotTracer.Spawn(from, to, hit);
             OnWaterGunFired?.Invoke(this, new WaterShotEventArgs { from = from, to = to, hit = hit });
         }
 

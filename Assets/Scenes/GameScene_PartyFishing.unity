@@ -5122,6 +5122,12 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: e96cffa9d00b6b545adfeb26165952cc, type: 3}
+--- !u!20 &1132827588 stripped
+Camera:
+  m_CorrespondingSourceObject: {fileID: 1798342755243477739, guid: e96cffa9d00b6b545adfeb26165952cc,
+    type: 3}
+  m_PrefabInstance: {fileID: 1132827587}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1135838383
 GameObject:
   m_ObjectHideFlags: 0
@@ -5438,6 +5444,9 @@ MonoBehaviour:
     equippedHighlight: {fileID: 0}
   equippedNameColor: {r: 1, g: 0.9, b: 0.3, a: 1}
   idleNameColor: {r: 1, g: 1, b: 1, a: 1}
+  cooldownOverlayColor: {r: 0.1, g: 0.1, b: 0.12, a: 0.72}
+  cooldownLabelColor: {r: 1, g: 1, b: 1, a: 1}
+  cooldownLabelFontSize: 42
 --- !u!114 &1166299633
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5516,9 +5525,9 @@ Canvas:
   m_GameObject: {fileID: 1166299630}
   m_Enabled: 1
   serializedVersion: 3
-  m_RenderMode: 0
-  m_Camera: {fileID: 0}
-  m_PlaneDistance: 100
+  m_RenderMode: 1
+  m_Camera: {fileID: 1132827588}
+  m_PlaneDistance: 1
   m_PixelPerfect: 0
   m_ReceivesEvents: 1
   m_OverrideSorting: 0
@@ -7116,7 +7125,7 @@ RenderTexture:
   m_TextureSettings:
     serializedVersion: 2
     m_FilterMode: 0
-    m_Aniso: 1
+    m_Aniso: 0
     m_MipBias: 0
     m_WrapU: 1
     m_WrapV: 1

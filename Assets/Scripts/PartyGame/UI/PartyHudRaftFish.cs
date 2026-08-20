@@ -5,16 +5,19 @@ using UnityEngine.UI;
 namespace PartyGame.UI
 {
     /// <summary>
-    /// HUD panel in the bottom-left showing the currently-equipped item's remaining uses.
-    /// - WaterGun: "水枪 {ammo}/{clip}" (or "装填中… {ammo}/{clip}" during a reload)
-    /// - Hook:     "钩爪 {durability}/{maxDurability}"
-    /// - Other:    "{displayName} {durability}/{startingDurability}"
-    /// - Nothing:  "未装备"
+    /// HUD panel in the bottom-left showing the currently-equipped weapon's ammo/reserves.
+    /// Format is always "{current} / {reserve}":
+    /// - WaterGun:  current = clip ammo, reserve = ∞ (infinite spare)
+    /// - Hook:      current = remaining shots (durability), reserve = 0 (no reload)
+    /// - Other:     current = durability, reserve = 0 (single-use consumables)
+    /// - Nothing:   "未装备"
     ///
-    /// The fill Image mirrors the ratio.
+    /// The fill Image mirrors the current/max-current ratio.
     /// </summary>
     public class PartyHudRaftFish : MonoBehaviour
     {
+        private const string InfinitySymbol = "∞";
+
         [SerializeField] private PartyPlayer localPlayer;
         [SerializeField] private TextMeshProUGUI label;
         [SerializeField] private Image fill;
@@ -87,22 +90,21 @@ namespace PartyGame.UI
                 int cap = localPlayer.WaterClipSize;
                 if (localPlayer.WaterReloading)
                 {
-                    label.text = $"装填中… {ammo} / {cap}";
+                    label.text = $"装填中… {ammo} / {InfinitySymbol}";
                     if (fill != null) fill.fillAmount = localPlayer.WaterReloadNormalized;
                 }
                 else
                 {
-                    label.text = $"水枪 {ammo} / {cap}";
+                    label.text = $"{ammo} / {InfinitySymbol}";
                     if (fill != null) fill.fillAmount = cap > 0 ? (float)ammo / cap : 0f;
                 }
                 return;
             }
 
-            // Generic path — durability out of max.
+            // Non-refilling items (hook, mines, nets…) show remaining uses over 0 reserve.
             int cur = equipped.durability;
             int max = data.startingDurability > 0 ? data.startingDurability : cur;
-            string name = string.IsNullOrEmpty(data.displayName) ? data.kind.ToString() : data.displayName;
-            label.text = $"{name} {cur} / {max}";
+            label.text = $"{cur} / 0";
             if (fill != null) fill.fillAmount = max > 0 ? (float)cur / max : 0f;
         }
     }

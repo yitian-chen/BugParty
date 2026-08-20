@@ -261,6 +261,18 @@ namespace PartyGame
 
         public override void OnNetworkSpawn()
         {
+            InitializeNetworkedState();
+        }
+
+        // Split out so the solo-mode path can call it too. In solo mode OnNetworkSpawn never fires
+        // (there's no NetworkManager listening), so nothing subscribes to the NetworkVariable
+        // change events and RebuildLocalSlots never runs — leaving itemSlots[] all null even after
+        // TryEquipItem has written to the underlying SlotSync.
+        private bool initialized;
+        private void InitializeNetworkedState()
+        {
+            if (initialized) return;
+            initialized = true;
             netCarriedCommon.OnValueChanged += (a, b) => OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
             netCarriedGolden.OnValueChanged += (a, b) => OnCarriedFishChanged?.Invoke(this, EventArgs.Empty);
             netSlot0.OnValueChanged += (a, b) => { RebuildLocalSlots(); OnItemsChanged?.Invoke(this, EventArgs.Empty); if (CanAuthor) HandleSlotChanged_Server(0); };
@@ -299,8 +311,7 @@ namespace PartyGame
             // Solo mode: same auto-attach as OnNetworkSpawn does for networked spawns.
             if (IsSoloMode)
             {
-                if (GetComponent<WaterReloadBar>() == null) gameObject.AddComponent<WaterReloadBar>();
-                if (GetComponent<BoosterWakeVisual>() == null) gameObject.AddComponent<BoosterWakeVisual>();
+                InitializeNetworkedState();
             }
         }
 
@@ -511,8 +522,25 @@ namespace PartyGame
                     other.ApplyKnockbackClientRpc(push, target);
                 }
                 if (stun > 0f) other.Stun(stun);
+                // Ram SFX: broadcast to everyone so all peers hear the impact.
+                if (IsSoloMode)
+                {
+                    var sm = SoundManager.Instance;
+                    if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxRamHit);
+                }
+                else
+                {
+                    PlayRamHitSfxClientRpc();
+                }
                 ramCooldowns[key] = cooldown;
             }
+        }
+
+        [ClientRpc]
+        private void PlayRamHitSfxClientRpc()
+        {
+            var sm = SoundManager.Instance;
+            if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxRamHit);
         }
 
         private void PollItemHotkeys()
@@ -968,6 +996,12 @@ namespace PartyGame
             // the actual muzzle→impact segment the server resolved.
             WaterShotTracer.Spawn(from, to, hit);
             OnWaterGunFired?.Invoke(this, new WaterShotEventArgs { from = from, to = to, hit = hit });
+            // Hit SFX — only when the shot actually connected. Miss stays silent.
+            if (hit)
+            {
+                var sm = SoundManager.Instance;
+                if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxKnife);
+            }
         }
 
         public class WaterShotEventArgs : System.EventArgs
@@ -1494,7 +1528,19 @@ namespace PartyGame
 
         // ---- Slot helpers ----
         private SlotSync ReadSlot(int i) => i == 0 ? netSlot0.Value : netSlot1.Value;
-        private void WriteSlot(int i, SlotSync s) { if (i == 0) netSlot0.Value = s; else netSlot1.Value = s; }
+        private void WriteSlot(int i, SlotSync s)
+        {
+            if (i == 0) netSlot0.Value = s; else netSlot1.Value = s;
+            // Solo mode: NetworkVariable.OnValueChanged doesn't fire without a spawned
+            // NetworkObject, so drive the local mirror directly. Networked mode gets the
+            // rebuild via the OnValueChanged subscription in InitializeNetworkedState.
+            if (IsSoloMode)
+            {
+                RebuildLocalSlots();
+                OnItemsChanged?.Invoke(this, EventArgs.Empty);
+                HandleSlotChanged_Server(i);
+            }
+        }
         private void RebuildLocalSlots()
         {
             if (itemSlots == null) itemSlots = new ItemInstance[2];

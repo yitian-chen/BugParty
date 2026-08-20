@@ -71,12 +71,25 @@ namespace PartyGame
                 SetActive(false);
                 return;
             }
+            // Only aim-based weapons need a crosshair. Booster (and any future no-aim item) is a
+            // hold-Shift ability with no mouse target, so the reticle would just be noise.
             EnsureCanvas();
             SetActive(true);
-            Vector2 mp = mouse.position.ReadValue();
-            reticleRT.position = new Vector3(mp.x, mp.y, 0f);
+            bool showReticle = IsAimingWeaponEquipped();
+            if (reticleRT != null) reticleRT.gameObject.SetActive(showReticle);
+            if (showReticle)
+            {
+                Vector2 mp = mouse.position.ReadValue();
+                reticleRT.position = new Vector3(mp.x, mp.y, 0f);
+            }
 
             UpdateBanner();
+        }
+
+        /// <summary>Weapons that require the mouse: water gun and hook. Booster & non-weapons hide the reticle.</summary>
+        private bool IsAimingWeaponEquipped()
+        {
+            return player.IsEquippedKind(ItemKind.WaterGun) || player.IsEquippedKind(ItemKind.Hook);
         }
 
         private void UpdateBanner()

@@ -1,3 +1,4 @@
+using PartyGame;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -45,6 +46,7 @@ namespace PartyGame.Net
 
         private void OnHostClicked()
         {
+            PlayUiClick();
             LanBootstrapData.Mode = LanBootstrapData.StartMode.Host;
             LanBootstrapData.Address = "0.0.0.0"; // bind all interfaces so LAN clients can reach us
             LanBootstrapData.Port = ReadPort();
@@ -53,10 +55,17 @@ namespace PartyGame.Net
 
         private void OnJoinClicked()
         {
+            PlayUiClick();
             LanBootstrapData.Mode = LanBootstrapData.StartMode.Client;
             LanBootstrapData.Address = ReadAddress();
             LanBootstrapData.Port = ReadPort();
             LoadGame();
+        }
+
+        private static void PlayUiClick()
+        {
+            var sm = SoundManager.Instance;
+            if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxUiClick);
         }
 
         private void LoadGame()

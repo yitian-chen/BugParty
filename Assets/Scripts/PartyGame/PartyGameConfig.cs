@@ -96,8 +96,8 @@ namespace PartyGame
         public float boosterSpeedMultiplier = 2.5f;
         [Tooltip("Turn (yaw) speed multiplier while boosting.")]
         public float boosterTurnMultiplier = 1.5f;
-        [Tooltip("Radius (meters) around the boosting player that gets checked each frame for other players to ram.")]
-        public float boosterRamRadius = 1.6f;
+        [Tooltip("Radius (meters) around the boosting player that gets checked each frame for other players to ram. Must exceed 2 × the player CapsuleCollider radius so overlapping rafts count as a hit.")]
+        public float boosterRamRadius = 3.5f;
         [Tooltip("Distance (meters) the rammed victim is knocked back along the boost direction.")]
         public float boosterRamKnockback = 3.5f;
         [Tooltip("Seconds the rammed victim is stunned after being knocked back.")]

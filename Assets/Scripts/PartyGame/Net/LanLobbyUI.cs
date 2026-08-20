@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PartyGame;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
@@ -143,6 +144,7 @@ namespace PartyGame.Net
                     SlotNames[slot], SlotColors[slot], 20);
                 btn.onClick.AddListener(() =>
                 {
+                    PlayUiClick();
                     var lobby = LanLobbyManager.Instance;
                     if (lobby != null) lobby.RequestSlotServerRpc(slot);
                 });
@@ -156,6 +158,7 @@ namespace PartyGame.Net
             startButtonLabel = startButton.GetComponentInChildren<Text>();
             startButton.onClick.AddListener(() =>
             {
+                PlayUiClick();
                 var lobby = LanLobbyManager.Instance;
                 if (lobby != null) lobby.RequestStartMatchServerRpc();
             });
@@ -169,10 +172,17 @@ namespace PartyGame.Net
                 "离开房间", new Color(0.35f, 0.35f, 0.4f), 18);
             leaveButton.onClick.AddListener(() =>
             {
+                PlayUiClick();
                 var nm = NetworkManager.Singleton;
                 if (nm != null) nm.Shutdown();
                 UnityEngine.SceneManagement.SceneManager.LoadScene("LanMenuScene");
             });
+        }
+
+        private static void PlayUiClick()
+        {
+            var sm = SoundManager.Instance;
+            if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxUiClick);
         }
 
         // ---------- Small factory helpers ----------

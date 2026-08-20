@@ -61,6 +61,18 @@ namespace PartyGame
                 victim.Stun(stun);
                 if (mineItemData != null) victim.TryEquipItem(mineItemData);
 
+                // Explosion SFX. In solo mode we just play locally; networked, we broadcast a
+                // ClientRpc so every peer hears it (only the server sees the trigger).
+                if (IsSoloMode)
+                {
+                    var sm = SoundManager.Instance;
+                    if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxExplode);
+                }
+                else
+                {
+                    PlayExplosionSfxClientRpc();
+                }
+
                 if (!IsSoloMode)
                 {
                     var netObj = GetComponent<NetworkObject>();
@@ -68,6 +80,13 @@ namespace PartyGame
                 }
                 Destroy(gameObject);
             }
+        }
+
+        [ClientRpc]
+        private void PlayExplosionSfxClientRpc()
+        {
+            var sm = SoundManager.Instance;
+            if (sm != null && sm.Library != null) sm.PlaySfx(sm.Library.sfxExplode);
         }
     }
 }

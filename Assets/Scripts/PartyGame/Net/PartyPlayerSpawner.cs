@@ -102,7 +102,14 @@ namespace PartyGame.Net
             if (slot < 0 || slot >= spawnPositions.Length) { Debug.LogWarning($"[PartyPlayerSpawner] slot {slot} out of range."); return; }
 
             Vector3 pos = spawnPositions[slot];
-            var go = Instantiate(playerPrefab, pos, Quaternion.identity);
+            // Face toward the map center along Z: players spawned on the +Z half of the arena look
+            // toward -Z (and vice versa) so everyone starts oriented toward the shared fishing area
+            // instead of staring off the map. Uses the actual world Z of the spawn point rather
+            // than slot index, since spawn ordering isn't guaranteed to correlate with Z.
+            Quaternion rot = pos.z > 0f
+                ? Quaternion.LookRotation(Vector3.back,   Vector3.up)   // face -Z
+                : Quaternion.LookRotation(Vector3.forward, Vector3.up); // face +Z
+            var go = Instantiate(playerPrefab, pos, rot);
             go.name = isBot
                 ? $"PartyPlayer_P{slot + 1}_Bot_{clientId}"
                 : $"PartyPlayer_P{slot + 1}_Net_{clientId}";

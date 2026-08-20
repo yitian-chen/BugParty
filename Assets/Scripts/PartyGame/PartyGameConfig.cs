@@ -91,6 +91,22 @@ namespace PartyGame
         [Tooltip("Seconds the hooked player is stunned once the pull lands them next to the caster.")]
         public float hookVictimStunDuration = 2f;
 
+        [Header("Booster (thruster item — hold Shift to sprint)")]
+        [Tooltip("Movement speed multiplier while boosting.")]
+        public float boosterSpeedMultiplier = 2.5f;
+        [Tooltip("Turn (yaw) speed multiplier while boosting.")]
+        public float boosterTurnMultiplier = 1.5f;
+        [Tooltip("Radius (meters) around the boosting player that gets checked each frame for other players to ram.")]
+        public float boosterRamRadius = 1.6f;
+        [Tooltip("Distance (meters) the rammed victim is knocked back along the boost direction.")]
+        public float boosterRamKnockback = 3.5f;
+        [Tooltip("Seconds the rammed victim is stunned after being knocked back.")]
+        public float boosterRamStunDuration = 1f;
+        [Tooltip("Per-victim cooldown (seconds) so a single sprint doesn't ram the same player every frame.")]
+        public float boosterRamPerVictimCooldown = 1.2f;
+        // Note: total fuel is now stored on the item SO (item_booster.startingDurability, in whole seconds),
+        // so it can be tuned per-pickup. `boosterDurationSeconds` and `grantBoosterOnStart` were removed.
+
         [Header("Item Registry (for network kind -> SO lookup)")]
         [Tooltip("All ItemDataSO used in the match. Clients look up SOs by ItemKind through this list.")]
         public ItemDataSO[] allItems;

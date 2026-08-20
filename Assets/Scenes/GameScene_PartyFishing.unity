@@ -5106,7 +5106,7 @@ PrefabInstance:
         type: 3}
       propertyPath: m_TargetTexture
       value: 
-      objectReference: {fileID: 1713375457}
+      objectReference: {fileID: 1911098513}
     - target: {fileID: 9205371885998440386, guid: e96cffa9d00b6b545adfeb26165952cc,
         type: 3}
       propertyPath: near clip plane
@@ -5394,6 +5394,7 @@ GameObject:
   - component: {fileID: 1166299633}
   - component: {fileID: 1166299632}
   - component: {fileID: 1166299631}
+  - component: {fileID: 1166299639}
   m_Layer: 0
   m_Name: PartyHUD
   m_TagString: Untagged
@@ -5566,6 +5567,26 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!114 &1166299639
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1166299630}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ce2dede4971b2974592842708d1cd26c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  localPlayer: {fileID: 0}
+  anchoredPosition: {x: 0, y: 100}
+  barSize: {x: 360, y: 22}
+  hintFontSize: 26
+  hintText: "\u6309\u4F4F Shift \u52A0\u901F"
+  fillColor: {r: 0.35, g: 0.85, b: 1, a: 0.95}
+  bgColor: {r: 0, g: 0, b: 0, a: 0.55}
+  activeFillColor: {r: 1, g: 0.85, b: 0.25, a: 1}
 --- !u!1 &1168354631
 GameObject:
   m_ObjectHideFlags: 0
@@ -6798,8 +6819,8 @@ MonoBehaviour:
   - {fileID: 1838911383}
   - {fileID: 456942311}
   - {fileID: 1135838385}
-  defaultFishingItem: {fileID: 11400000, guid: 1d3b1cecb069d11b78210be6f9cf072f, type: 2}
-  defaultDisruptionItem: {fileID: 11400000, guid: aa11bb22cc33dd44ee55ff6677889901,
+  defaultFishingItem: {fileID: 11400000, guid: aa11bb22cc33dd44ee55ff6677889901, type: 2}
+  defaultDisruptionItem: {fileID: 11400000, guid: 7b21ca6f8e4d4c02a1b5f8d1e2c9a3b4,
     type: 2}
   seedItemForDemo: {fileID: 0}
   autoStart: 1
@@ -7095,44 +7116,6 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
---- !u!84 &1713375457
-RenderTexture:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: 
-  m_ImageContentsHash:
-    serializedVersion: 2
-    Hash: 00000000000000000000000000000000
-  m_ForcedFallbackFormat: 4
-  m_DownscaleFallback: 0
-  m_IsAlphaChannelOptional: 0
-  serializedVersion: 5
-  m_Width: 654
-  m_Height: 360
-  m_AntiAliasing: 1
-  m_MipCount: -1
-  m_DepthStencilFormat: 94
-  m_ColorFormat: 4
-  m_MipMap: 0
-  m_GenerateMips: 1
-  m_SRGB: 1
-  m_UseDynamicScale: 0
-  m_BindMS: 0
-  m_EnableCompatibleFormat: 1
-  m_EnableRandomWrite: 0
-  m_TextureSettings:
-    serializedVersion: 2
-    m_FilterMode: 0
-    m_Aniso: 0
-    m_MipBias: 0
-    m_WrapU: 1
-    m_WrapV: 1
-    m_WrapW: 1
-  m_Dimension: 2
-  m_VolumeDepth: 1
-  m_ShadowSamplingMode: 2
 --- !u!1 &1741783883
 GameObject:
   m_ObjectHideFlags: 0
@@ -7872,6 +7855,44 @@ MonoBehaviour:
   m_hasFontAssetChanged: 0
   m_baseMaterial: {fileID: 0}
   m_maskOffset: {x: 0, y: 0, z: 0, w: 0}
+--- !u!84 &1911098513
+RenderTexture:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_ForcedFallbackFormat: 4
+  m_DownscaleFallback: 0
+  m_IsAlphaChannelOptional: 0
+  serializedVersion: 5
+  m_Width: 654
+  m_Height: 360
+  m_AntiAliasing: 1
+  m_MipCount: -1
+  m_DepthStencilFormat: 94
+  m_ColorFormat: 4
+  m_MipMap: 0
+  m_GenerateMips: 1
+  m_SRGB: 1
+  m_UseDynamicScale: 0
+  m_BindMS: 0
+  m_EnableCompatibleFormat: 1
+  m_EnableRandomWrite: 0
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 0
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 1
+    m_WrapV: 1
+    m_WrapW: 1
+  m_Dimension: 2
+  m_VolumeDepth: 1
+  m_ShadowSamplingMode: 2
 --- !u!1001 &1951596028
 PrefabInstance:
   m_ObjectHideFlags: 0

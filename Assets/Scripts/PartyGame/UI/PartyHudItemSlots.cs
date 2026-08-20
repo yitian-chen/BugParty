@@ -96,6 +96,7 @@ namespace PartyGame.UI
                 ItemInstance inst = (slots != null && i < slots.Length) ? slots[i] : null;
                 bool hasItem = inst != null && !inst.IsEmpty;
                 bool isHook = hasItem && inst.data != null && inst.data.kind == ItemKind.Hook;
+                bool isBooster = hasItem && inst.data != null && inst.data.kind == ItemKind.Booster;
                 bool isEquipped = hasItem && i == equipped;
                 bool hookCooling = isHook && localPlayer.HookOnCooldown;
 
@@ -113,9 +114,15 @@ namespace PartyGame.UI
                 {
                     // Hide the durability corner text during hook cooldown — the big centered
                     // countdown replaces it. When ready, restore "x{durability}".
+                    // Booster durability is measured in seconds → show with an "s" suffix so the
+                    // player reads it as time, not shot count.
                     if (hookCooling)
                     {
                         v.durabilityLabel.text = "";
+                    }
+                    else if (isBooster)
+                    {
+                        v.durabilityLabel.text = inst.durability + "s";
                     }
                     else
                     {

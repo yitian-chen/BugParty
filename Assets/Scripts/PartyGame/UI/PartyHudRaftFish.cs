@@ -100,12 +100,21 @@ namespace PartyGame.UI
                 }
                 return;
             }
+            if (data.kind == ItemKind.Booster)
+            {
+                // Booster: durability = seconds of sprint remaining. Show as time, not shot count.
+                int cur = equipped.durability;
+                int max = data.startingDurability > 0 ? data.startingDurability : cur;
+                label.text = $"{cur}s / {max}s";
+                if (fill != null) fill.fillAmount = max > 0 ? (float)cur / max : 0f;
+                return;
+            }
 
             // Non-refilling items (hook, mines, nets…) show remaining uses over 0 reserve.
-            int cur = equipped.durability;
-            int max = data.startingDurability > 0 ? data.startingDurability : cur;
-            label.text = $"{cur} / 0";
-            if (fill != null) fill.fillAmount = max > 0 ? (float)cur / max : 0f;
+            int nCur = equipped.durability;
+            int nMax = data.startingDurability > 0 ? data.startingDurability : nCur;
+            label.text = $"{nCur} / 0";
+            if (fill != null) fill.fillAmount = nMax > 0 ? (float)nCur / nMax : 0f;
         }
     }
 }

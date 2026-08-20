@@ -55,6 +55,14 @@ MonoBehaviour:
   hookPullTargetDistance: 3.5
   hookHitRadius: 1.2
   hookVictimStunDuration: 2
+  boosterSpeedMultiplier: 2.5
+  boosterTurnMultiplier: 1.5
+  boosterRamRadius: 1.6
+  boosterRamKnockback: 3.5
+  boosterRamStunDuration: 1
+  boosterRamPerVictimCooldown: 1.2
+  boosterDurationSeconds: 40
+  grantBoosterOnStart: 1
   allItems:
   - {fileID: 11400000, guid: b985c7d9ad782c545aaaea99e71fc9aa, type: 2}
   - {fileID: 11400000, guid: 5a810c2551bc5914d84a05950be0e840, type: 2}
@@ -62,6 +70,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: aa11bb22cc33dd44ee55ff6677889901, type: 2}
   - {fileID: 11400000, guid: 1D3B1CeCB069D11B78210Be6f9cf072F, type: 2}
   - {fileID: 11400000, guid: 1D3B1CeCB069D11B78210Be6f9cf072F, type: 2}
+  - {fileID: 11400000, guid: 7b21ca6f8e4d4c02a1b5f8d1e2c9a3b4, type: 2}
   commonFishScore: 1
   goldenFishScore: 2
   frenzyMoveMultiplier: 2

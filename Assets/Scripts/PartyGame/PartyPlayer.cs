@@ -64,6 +64,14 @@ namespace PartyGame
         // requests a change via ServerRpc. -1 = no weapon equipped.
         private NetworkVariable<int> netEquippedSlot = new NetworkVariable<int>(-1);
 
+        // Booster (thruster) is a real slot item — availability is derived from EquippedItem.
+        // The remaining fuel lives in SlotSync.durability as an INT count of whole seconds.
+        // netBoostActive drives the sprint speed and VFX on every peer; server-authoritative and
+        // set/cleared by the owner's held-Shift input (throttled to edges).
+        private NetworkVariable<bool> netBoostActive = new NetworkVariable<bool>(false);
+        // Sub-second accumulator on the server for whole-second durability decrements while active.
+        private float boostSecondAccumulator;
+
         // Local mirrors of item slots (materialized ItemInstance from SlotSync + config lookup).
         private ItemInstance[] itemSlots;
 
@@ -80,6 +88,7 @@ namespace PartyGame
         public event EventHandler OnWaterGunChanged;   // fired when ammo / reload state changes
         public event EventHandler OnWaterGunFired;     // fired on client when a shot lands (for VFX)
         public event EventHandler OnEquippedWeaponChanged; // fired when the equipped slot changes
+        public event EventHandler OnBoosterChanged;        // fired when booster availability / remaining seconds / active state changes
 
         public int PlayerIndex => playerIndex;
         public int CarriedCommon => netCarriedCommon.Value;
@@ -152,6 +161,37 @@ namespace PartyGame
                 return (s == null || s.IsEmpty) ? null : s;
             }
         }
+
+        // Booster read-only state for HUD / VFX. Booster is a real slot item now — availability
+        // comes from an equipped Booster weapon; fuel is that slot's durability (whole seconds).
+        public bool BoosterEquipped => IsEquippedKind(ItemKind.Booster);
+        public int BoosterRemainingSeconds
+        {
+            get
+            {
+                var eq = EquippedItem;
+                return (eq != null && eq.data != null && eq.data.kind == ItemKind.Booster) ? eq.durability : 0;
+            }
+        }
+        public int BoosterTotalSeconds
+        {
+            get
+            {
+                var eq = EquippedItem;
+                if (eq == null || eq.data == null || eq.data.kind != ItemKind.Booster) return 0;
+                return eq.data.startingDurability;
+            }
+        }
+        public float BoosterFraction
+        {
+            get
+            {
+                int total = BoosterTotalSeconds;
+                if (total <= 0) return 0f;
+                return Mathf.Clamp01((float)BoosterRemainingSeconds / total);
+            }
+        }
+        public bool BoosterActive => netBoostActive.Value;
 
         private bool IsSoloMode => NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening;
         private bool CanAuthor => IsSoloMode || IsServer;
@@ -234,6 +274,7 @@ namespace PartyGame
             netWaterAmmo.OnValueChanged      += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
             netWaterReloading.OnValueChanged += (a, b) => OnWaterGunChanged?.Invoke(this, EventArgs.Empty);
             netEquippedSlot.OnValueChanged   += (a, b) => OnEquippedWeaponChanged?.Invoke(this, EventArgs.Empty);
+            netBoostActive.OnValueChanged    += (a, b) => OnBoosterChanged?.Invoke(this, EventArgs.Empty);
             RebuildLocalSlots();
             // If we have a weapon in a slot and none equipped yet, auto-equip the first weapon slot
             // on the server. This is what lets the demo loadout show slot 0 (water gun) as ready.
@@ -246,6 +287,8 @@ namespace PartyGame
             }
             // Reload bar is world-space and visible to everyone, so every peer gets its own copy.
             if (GetComponent<WaterReloadBar>() == null) gameObject.AddComponent<WaterReloadBar>();
+            // Booster wake trail is world-space and driven by netBoosterActive, so everyone gets it.
+            if (GetComponent<BoosterWakeVisual>() == null) gameObject.AddComponent<BoosterWakeVisual>();
         }
 
         private bool subscribed;
@@ -253,6 +296,12 @@ namespace PartyGame
         private void Start()
         {
             TrySubscribeInput();
+            // Solo mode: same auto-attach as OnNetworkSpawn does for networked spawns.
+            if (IsSoloMode)
+            {
+                if (GetComponent<WaterReloadBar>() == null) gameObject.AddComponent<WaterReloadBar>();
+                if (GetComponent<BoosterWakeVisual>() == null) gameObject.AddComponent<BoosterWakeVisual>();
+            }
         }
 
         private void OnEnable()
@@ -347,10 +396,123 @@ namespace PartyGame
                 {
                     netHookCooldownT.Value = Mathf.Max(0f, netHookCooldownT.Value - Time.deltaTime);
                 }
+                // Booster drain: only ticks while active. Fuel = SlotSync.durability of the booster
+                // slot, in whole seconds. A local sub-second accumulator collects Time.deltaTime;
+                // every time it crosses 1s we decrement durability by 1. When it hits 0 we clear
+                // netBoostActive so the sprint / VFX stop immediately.
+                if (netBoostActive.Value)
+                {
+                    if (IsStunned || !IsEquippedKind(ItemKind.Booster))
+                    {
+                        netBoostActive.Value = false;
+                        boostSecondAccumulator = 0f;
+                    }
+                    else
+                    {
+                        boostSecondAccumulator += Time.deltaTime;
+                        while (boostSecondAccumulator >= 1f)
+                        {
+                            boostSecondAccumulator -= 1f;
+                            int slotIndex = netEquippedSlot.Value;
+                            if (slotIndex >= 0 && slotIndex <= 1)
+                            {
+                                var s = ReadSlot(slotIndex);
+                                if (s.durability > 0)
+                                {
+                                    s.durability--;
+                                    WriteSlot(slotIndex, s.durability <= 0 ? new SlotSync{kind=-1,durability=0} : s);
+                                }
+                                if (s.durability <= 0)
+                                {
+                                    netBoostActive.Value = false;
+                                    boostSecondAccumulator = 0f;
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                netBoostActive.Value = false;
+                                boostSecondAccumulator = 0f;
+                                break;
+                            }
+                        }
+                    }
+                    // Ram detection: while boosting, look for other PartyPlayers within
+                    // boosterRamRadius and knock them back along the ram direction, then stun.
+                    // Runs after the drain tick so a durability=0 tick this frame won't also ram.
+                    if (netBoostActive.Value) TickBoosterRam_Server();
+                }
                 TickFishingServer();
             }
 
             HandleMovement();
+        }
+
+        // Per-victim cooldown so a single sprint that keeps overlapping the same target only
+        // rams them once per cooldown window. Server-only state.
+        private readonly System.Collections.Generic.Dictionary<ulong, float> ramCooldowns = new System.Collections.Generic.Dictionary<ulong, float>();
+
+        private void TickBoosterRam_Server()
+        {
+            if (!CanAuthor) return;
+            float radius = config != null ? config.boosterRamRadius : 1.6f;
+            float knock = config != null ? config.boosterRamKnockback : 3.5f;
+            float stun = config != null ? config.boosterRamStunDuration : 1f;
+            float cooldown = config != null ? config.boosterRamPerVictimCooldown : 1.2f;
+
+            // Decay all cooldowns and drop entries at or below zero to keep the dict bounded.
+            if (ramCooldowns.Count > 0)
+            {
+                var expired = new System.Collections.Generic.List<ulong>();
+                var keys = new System.Collections.Generic.List<ulong>(ramCooldowns.Keys);
+                foreach (var k in keys)
+                {
+                    float t = ramCooldowns[k] - Time.deltaTime;
+                    if (t <= 0f) expired.Add(k);
+                    else ramCooldowns[k] = t;
+                }
+                foreach (var k in expired) ramCooldowns.Remove(k);
+            }
+
+            // "Ram direction" is our current forward when boost is active; the boost is a
+            // hold-Shift-while-driving move so forward is the only sensible push direction.
+            Vector3 fwd = transform.forward; fwd.y = 0f;
+            if (fwd.sqrMagnitude < 0.001f) return;
+            fwd.Normalize();
+
+            foreach (var other in FindObjectsOfType<PartyPlayer>())
+            {
+                if (other == null || other == this) continue;
+                // Use a stable per-player key. In networked mode OwnerClientId is stable per
+                // player; in solo we fall back on the instance ID so bots still work.
+                ulong key = IsSoloMode ? (ulong)other.GetInstanceID() : other.OwnerClientId;
+                if (ramCooldowns.ContainsKey(key)) continue;
+
+                Vector3 delta = other.transform.position - transform.position;
+                delta.y = 0f;
+                float distSq = delta.sqrMagnitude;
+                if (distSq > radius * radius) continue;
+
+                // Push along our forward, with a fallback to the delta direction if we've walked
+                // through the other player (dot < 0 means they're behind us — still ram, using
+                // fwd, so the knock reads as a shove rather than a suck-back).
+                Vector3 push = fwd * knock;
+
+                if (IsSoloMode)
+                {
+                    other.transform.position += push;
+                }
+                else
+                {
+                    var target = new ClientRpcParams
+                    {
+                        Send = new ClientRpcSendParams { TargetClientIds = new[] { other.OwnerClientId } }
+                    };
+                    other.ApplyKnockbackClientRpc(push, target);
+                }
+                if (stun > 0f) other.Stun(stun);
+                ramCooldowns[key] = cooldown;
+            }
         }
 
         private void PollItemHotkeys()
@@ -362,7 +524,36 @@ namespace PartyGame
             // legacy "use item now" path (mines/knife etc.) so those still work if we ever put one back.
             if (kb.digit1Key.wasPressedThisFrame) HandleDigit(0);
             if (kb.digit2Key.wasPressedThisFrame) HandleDigit(1);
+            PollBoosterKey(kb);
             PollWaterGunMouse();
+        }
+
+        // Owner-side: mirror the "Shift held" bit to the server. Only send on edges to avoid
+        // spamming the RPC channel every frame.
+        private bool localBoostHeldLast;
+        private void PollBoosterKey(UnityEngine.InputSystem.Keyboard kb)
+        {
+            if (!IsLocalController) return;
+            bool held = kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed;
+            if (held == localBoostHeldLast) return;
+            localBoostHeldLast = held;
+            if (IsSoloMode) DoSetBoosting_Server(held);
+            else if (IsOwner) SetBoostingServerRpc(held);
+        }
+
+        [ServerRpc]
+        private void SetBoostingServerRpc(bool wantsBoost, ServerRpcParams _ = default) => DoSetBoosting_Server(wantsBoost);
+
+        private void DoSetBoosting_Server(bool wantsBoost)
+        {
+            if (!CanAuthor) return;
+            // Booster must be the currently-equipped weapon slot AND still have fuel (durability).
+            bool canBoost = IsEquippedKind(ItemKind.Booster) && BoosterRemainingSeconds > 0;
+            bool nextActive = wantsBoost && canBoost;
+            if (netBoostActive.Value != nextActive) netBoostActive.Value = nextActive;
+            // Reset the sub-second accumulator on transitions so a half-tick doesn't carry over
+            // across on/off toggles.
+            if (!nextActive) boostSecondAccumulator = 0f;
         }
 
         private void HandleDigit(int slotIndex)
@@ -995,9 +1186,10 @@ namespace PartyGame
             {
                 t += Time.deltaTime;
                 float k = Mathf.Clamp01(t / duration);
-                // Ease-out so the yank feels sharp at first then settles.
-                float eased = 1f - (1f - k) * (1f - k);
-                transform.position = Vector3.LerpUnclamped(start, target, eased);
+                // Linear reel-in — instantaneous speed matches the tracer's cast speed exactly.
+                // (An ease-out here would peak at 2x castSpeed at the start of the pull and feel
+                //  much faster than the outbound rope.)
+                transform.position = Vector3.LerpUnclamped(start, target, k);
                 yield return null;
             }
             transform.position = target;
@@ -1143,11 +1335,17 @@ namespace PartyGame
 
             float frenzyMul = PartyGameManager.Instance != null ? PartyGameManager.Instance.GetFrenzyMoveMultiplier() : 1f;
             float slowMul = IsSlowed && config != null ? config.waterGunSlowMultiplier : 1f;
-            float maxSpeed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul * slowMul;
-            float accel = (config != null ? config.playerAccel : 12f) * frenzyMul;
+            // Booster sprint: multiplies both top speed and forward accel so the sprint kick-in
+            // feels snappy instead of an anemic ramp. Turn rate/accel also get a smaller boost so
+            // sprints can still steer instead of plowing forward like a train. Applies only while
+            // netBoostActive is true.
+            float boostMul = netBoostActive.Value && config != null ? config.boosterSpeedMultiplier : 1f;
+            float boostTurnMul = netBoostActive.Value && config != null ? config.boosterTurnMultiplier : 1f;
+            float maxSpeed = (config != null ? config.playerMoveSpeed : 6f) * frenzyMul * slowMul * boostMul;
+            float accel = (config != null ? config.playerAccel : 12f) * frenzyMul * boostMul;
             float decel = (config != null ? config.playerDecel : 6f) * frenzyMul;
-            float maxTurnRate = 140f * frenzyMul;
-            float turnAccel = (config != null ? config.playerTurnAccel : 360f) * frenzyMul;
+            float maxTurnRate = 140f * frenzyMul * boostTurnMul;
+            float turnAccel = (config != null ? config.playerTurnAccel : 360f) * frenzyMul * boostTurnMul;
 
             // Turn inertia: yaw rate accelerates toward the target rate, decelerates back to 0 when no input.
             float targetTurnRate = turnInput * maxTurnRate;

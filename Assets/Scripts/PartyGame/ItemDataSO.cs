@@ -10,6 +10,7 @@ namespace PartyGame
         Mine,
         Hook,
         WaterGun,
+        Booster,
     }
 
     public enum ItemCategory

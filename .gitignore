@@ -74,3 +74,58 @@ crashlytics-build.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Local git backup dumps (from destructive operations that copy the .git dir aside)
+.git.bak-*/
+
+# ---- Art asset heavy binaries ----
+# Textures / models / audio inside art asset directories are kept out of the repo
+# (体积大且换起来频繁). Materials / prefabs / shaders / scripts are still tracked so
+# scene references survive on other machines even when the raw assets are missing.
+# 如果需要接入这些资源，用团队约定的 OSS/网盘同步到对应目录即可。
+/Assets/StylizedWater/**/*.png
+/Assets/StylizedWater/**/*.jpg
+/Assets/StylizedWater/**/*.jpeg
+/Assets/StylizedWater/**/*.tga
+/Assets/StylizedWater/**/*.psd
+/Assets/StylizedWater/**/*.exr
+/Assets/StylizedWater/**/*.hdr
+/Assets/StylizedWater/**/*.fbx
+/Assets/StylizedWater/**/*.FBX
+/Assets/StylizedWater/**/*.obj
+/Assets/StylizedWater/**/*.blend
+/Assets/StylizedWater/**/*.wav
+/Assets/StylizedWater/**/*.mp3
+/Assets/StylizedWater/**/*.ogg
+/Assets/StylizedWater/**/*.pdf
+
+/Assets/StylizedWaterShader/**/*.png
+/Assets/StylizedWaterShader/**/*.jpg
+/Assets/StylizedWaterShader/**/*.jpeg
+/Assets/StylizedWaterShader/**/*.tga
+/Assets/StylizedWaterShader/**/*.psd
+/Assets/StylizedWaterShader/**/*.exr
+/Assets/StylizedWaterShader/**/*.hdr
+/Assets/StylizedWaterShader/**/*.fbx
+/Assets/StylizedWaterShader/**/*.FBX
+/Assets/StylizedWaterShader/**/*.obj
+/Assets/StylizedWaterShader/**/*.blend
+/Assets/StylizedWaterShader/**/*.wav
+/Assets/StylizedWaterShader/**/*.mp3
+/Assets/StylizedWaterShader/**/*.ogg
+/Assets/StylizedWaterShader/**/*.pdf
+
+/Assets/land_1/**/*.png
+/Assets/land_1/**/*.jpg
+/Assets/land_1/**/*.jpeg
+/Assets/land_1/**/*.tga
+/Assets/land_1/**/*.psd
+/Assets/land_1/**/*.exr
+/Assets/land_1/**/*.hdr
+/Assets/land_1/**/*.fbx
+/Assets/land_1/**/*.FBX
+/Assets/land_1/**/*.obj
+/Assets/land_1/**/*.blend
+/Assets/land_1/**/*.wav
+/Assets/land_1/**/*.mp3
+/Assets/land_1/**/*.ogg
